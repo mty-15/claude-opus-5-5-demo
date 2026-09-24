@@ -170,6 +170,16 @@ table.res td.pos{font-family:var(--num);font-style:italic;color:var(--yellow);fo
   .msg{font-size:30px}
   #countdown{font-size:120px}
 }
+
+/* ---------- 手机竖屏提示（触屏设备且竖屏时显示） ---------- */
+#rotate{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  background:linear-gradient(180deg,rgba(10,20,48,.95),rgba(6,14,36,.98));text-align:center}
+#rotate .ph{width:52px;height:92px;border:4px solid var(--txt);border-radius:12px;animation:phoneRot 1.8s ease-in-out infinite}
+#rotate .ph::after{content:"";display:block;width:16px;height:3px;background:var(--txt);border-radius:2px;margin:6px auto 0;opacity:.55}
+@keyframes phoneRot{0%,25%{transform:rotate(0)}65%,100%{transform:rotate(90deg)}}
+#rotate .t1{font-size:22px;font-weight:800;letter-spacing:6px}
+#rotate .t2{font-size:13px;color:var(--muted);letter-spacing:1px}
+@media (orientation: portrait) and (pointer: coarse){#rotate{display:flex}}
 </style>
 </head>
 <body>
@@ -274,6 +284,8 @@ table.res td.pos{font-family:var(--num);font-style:italic;color:var(--yellow);fo
     </div>
   </div>
 </div>
+
+<div id="rotate"><div class="ph"></div><div class="t1">请横屏游玩</div><div class="t2">飞车 3D 是横屏竞速，请把手机旋转到横向</div></div>
 <!--APP_SCRIPT-->
 </body>
 </html>

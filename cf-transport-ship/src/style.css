@@ -188,3 +188,12 @@ body.lk #clinks{opacity:.22}
   #ammo .mag{font-size:34px}
   .cards{grid-template-columns:repeat(2,1fr)}
 }
+
+/* ---------- 手机竖屏提示（触屏设备且竖屏时显示） ---------- */
+#rotate{display:none;position:absolute;inset:0;z-index:99;pointer-events:auto;background:rgba(3,5,8,.94);flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center}
+#rotate .ph{width:52px;height:92px;border:4px solid var(--hud);border-radius:12px;animation:phoneRot 1.8s ease-in-out infinite}
+#rotate .ph::after{content:"";display:block;width:16px;height:3px;background:var(--hud);border-radius:2px;margin:6px auto 0;opacity:.55}
+@keyframes phoneRot{0%,25%{transform:rotate(0)}65%,100%{transform:rotate(90deg)}}
+#rotate .t1{font-size:22px;letter-spacing:6px;text-shadow:0 2px 4px #000}
+#rotate .t2{font-size:13px;color:var(--hudDim);letter-spacing:1px}
+@media (orientation: portrait) and (pointer: coarse){#rotate{display:flex}}

@@ -381,4 +381,6 @@ const TEMPLATE = `
   <div id="endTable" class="tbl"></div>
   <div style="display:flex;gap:10px;margin-top:16px"><button class="go" id="btnAgain">再 来 一 局</button><button class="go sec" id="btnMenu">主菜单</button></div>
 </div></div>
+
+<div id="rotate"><div class="ph"></div><div class="t1">请横屏游玩</div><div class="t2">运输船是横屏 FPS，请把手机旋转到横向</div></div>
 `;

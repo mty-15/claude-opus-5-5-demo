@@ -69,6 +69,11 @@ export class Game {
     document.addEventListener('pointerlockchange', () => this.onLockChange());
     this.touch = new TouchControls(this);
     this.touchMode = this.touch.enabled;
+    // 手机竖屏时自动暂停，转回横屏后点「继续」
+    const ori = matchMedia('(orientation: portrait)');
+    const onOri = (e) => { if (e.matches && this.touchMode && this.playing && !this.ended) this.pause(); };
+    if (ori.addEventListener) ori.addEventListener('change', onOri);
+    else if (ori.addListener) ori.addListener(onOri);
     this.last = performance.now();
     this.loop = this.loop.bind(this);
     requestAnimationFrame(this.loop);
@@ -199,12 +204,30 @@ export class Game {
     }
   }
   lock() {
-    if (this.touchMode || this.qs.has('nolock')) { this.locked = true; return; }
+    if (this.touchMode || this.qs.has('nolock')) {
+      this.locked = true;
+      // 手机：进入全屏后尝试锁定横屏（iOS 不支持会静默失败，由竖屏提示遮罩兜底）
+      const el = document.documentElement;
+      const fs = el.requestFullscreen || el.webkitRequestFullscreen;
+      try {
+        if (fs && !document.fullscreenElement && !document.webkitFullscreenElement) {
+          const p = fs.call(el);
+          if (p && p.then) p.then(() => this.lockLandscape()).catch(() => {});
+        } else this.lockLandscape();
+      } catch (e) { /* 忽略 */ }
+      return;
+    }
     const c = document.getElementById('c');
     try {
       const p = c.requestPointerLock({ unadjustedMovement: true });
       if (p && p.catch) p.catch(() => { try { c.requestPointerLock(); } catch (e) { /* 忽略 */ } });
     } catch (e) { try { c.requestPointerLock(); } catch (e2) { /* 忽略 */ } }
+  }
+  lockLandscape() {
+    try {
+      const p = screen.orientation && screen.orientation.lock ? screen.orientation.lock('landscape') : null;
+      if (p && p.catch) p.catch(() => { /* 忽略 */ });
+    } catch (e) { /* 忽略 */ }
   }
   onLockChange() {
     this.locked = document.pointerLockElement === document.getElementById('c');

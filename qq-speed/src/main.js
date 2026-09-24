@@ -121,6 +121,11 @@ class Game {
     if (IS_TOUCH) {
       document.body.classList.add('touch');
       this.input.bindTouch($('touch'));
+      // 手机竖屏时自动暂停，转回横屏后点「继续比赛」
+      const ori = matchMedia('(orientation: portrait)');
+      const onOri = (e) => { if (e.matches && (this.state === 'race' || this.state === 'countdown')) this.togglePause(); };
+      if (ori.addEventListener) ori.addEventListener('change', onOri);
+      else if (ori.addListener) ori.addListener(onOri);
     }
     this.setupQuality();
     this.buildMenu();
@@ -272,12 +277,32 @@ class Game {
       this.state = this.pausedFrom;
       $('pause').classList.add('hidden');
       this.last = performance.now();
+      this.lockLandscape();
     } else {
       this.pausedFrom = this.state;
       this.state = 'paused';
       $('pause').classList.remove('hidden');
       this.audio.silence();
     }
+  }
+
+  // 手机：进入全屏后尝试锁定横屏（iOS 不支持会静默失败，由竖屏提示遮罩兜底）
+  lockLandscape() {
+    if (!IS_TOUCH) return;
+    const el = document.documentElement;
+    try {
+      const fs = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (fs && !document.fullscreenElement && !document.webkitFullscreenElement) {
+        const p = fs.call(el);
+        if (p && p.then) p.then(() => this.lockOrientation()).catch(() => {});
+      } else this.lockOrientation();
+    } catch { /* 忽略 */ }
+  }
+  lockOrientation() {
+    try {
+      const p = screen.orientation && screen.orientation.lock ? screen.orientation.lock('landscape') : null;
+      if (p && p.catch) p.catch(() => { /* 忽略 */ });
+    } catch { /* 忽略 */ }
   }
 
   // ---------- 关卡 ----------
@@ -436,6 +461,7 @@ class Game {
   startRace() {
     if (this.loading) return;
     this.audio.init();
+    this.lockLandscape();
     ['menu', 'pause', 'result'].forEach((i) => $(i).classList.add('hidden'));
     this.itemMode = this.settings.mode === 'item';
     this.makeRacers(true);
