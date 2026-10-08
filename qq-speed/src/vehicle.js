@@ -52,6 +52,7 @@ export class PlayerCar {
     this.driftTime = 0;
     this.driftAngle = 0;
     this.gauge = 0;
+    this.wallTime = 0;
     this.nitroCount = 0;
     this.nitroTime = 0;
     this.smallBoost = 0;
@@ -150,6 +151,7 @@ export class PlayerCar {
     if (inp.nitroPressed && !itemMode) this.triggerNitro();
 
     const onGround = !this.airborne;
+    this.wallTime = Math.max(0, this.wallTime - dt);
     // 纵向
     this.throttle = inp.up ? 1 : inp.down ? -1 : 0;
     if (onGround) {
@@ -196,7 +198,7 @@ export class PlayerCar {
       this.driftAngle = a;
       const sa = Math.abs(Math.sin(a));
       if (onGround) this.s -= (2.5 + 11 * sa) * dt;
-      if (!itemMode && onGround) {
+      if (!itemMode && onGround && this.wallTime <= 0) {
         this.gauge += dt * T.gaugeRate * (0.3 + sa * 1.7) * clamp(this.s / 35, 0.3, 1.1);
         while (this.gauge >= 1) {
           if (this.nitroCount < 2) {
@@ -243,6 +245,8 @@ export class PlayerCar {
       const over = Math.abs(p.lat) - lim;
       this.x -= nx * over;
       this.z -= nz * over;
+      // 碰墙时锁定集气（防磨墙刷氮气），轻蹭不中断漂移
+      this.wallTime = 0.4;
       const vn = vx * nx + vz * nz;
       if (vn > 0) {
         const sp = Math.max(1, Math.hypot(vx, vz));
