@@ -1,5 +1,7 @@
 <h1 align="center">claude-opus-5-5-demo</h1>
 
+> **新增第四个并列游戏：[和平精英 · 海岛行动](peace-elite/README.md)**（`peace-elite/`）。48 人离线单机战术竞技，包含原创海岛、跳伞搜装、枪战 AI、越野车与缩圈。与原有游戏一样，在该目录执行 `npm install`、`node build.mjs`，然后直接打开 `dist/index.html`，无需开发服务器。新游戏尚未构建或部署；下文关于模型来源、一次生成与零人工改动的原始测评说明仅适用于原有三个示例。
+
 <p align="center">
   <b>一句话提示词 · One Shot —— Claude Opus 5.5 代码生成能力实测</b>
   <br />
