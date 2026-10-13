@@ -10,7 +10,7 @@ const FIRE_MODES = Object.freeze({ auto: '全自动', automatic: '全自动', si
 const ZONE_LABELS = Object.freeze({ waiting: '安全区收缩倒计时', shrinking: '安全区正在收缩', finished: '最终安全区' });
 const PHASE_LABELS = Object.freeze({ plane: '运输机航行', parachute: '空降部署', ground: '地面行动' });
 const SCREENS = ['loading', 'menu', 'playing', 'paused', 'result'];
-const ACTIONS = ['start', 'resume', 'restart', 'menu', 'setVolume', 'setQuality'];
+const ACTIONS = ['start', 'resume', 'restart', 'menu', 'setVolume', 'setQuality', 'editTouchLayout'];
 const NAVIGATION = new Set(['start', 'resume', 'restart', 'menu']);
 const OVERLAYS = ['map', 'inventory', 'help'];
 function finite(value) { return typeof value === 'number' && Number.isFinite(value); }

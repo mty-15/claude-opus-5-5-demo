@@ -4,6 +4,7 @@ import { createSoldier, createViewmodel, createLootMesh, createVehicle, createPl
 import { AudioEngine } from './audio.js';
 import { HUD } from './hud.js';
 import { Input } from './input.js';
+import { TouchLayout } from './touch-layout.js';
 import { CollisionWorld, raySphereDistance } from './physics.js';
 import { WEAPONS, createInventory, addLoot, reloadWeapon, consumeRound, applyDamage, createZone, advanceZone, zoneSnapshot, isOutsideZone, mulberry32 } from './rules.js';
 
@@ -29,9 +30,13 @@ export class Game {
     this.hud=new HUD({
       start:options=>this.start(options),resume:()=>this.resume(),restart:()=>this.start(this.options),menu:()=>this.menu(),
       setVolume:value=>this.audio.setVolume(value),setQuality:value=>this.setQuality(value),
+      editTouchLayout:()=>this.editTouchLayout(),
     });
     this.canvas=document.getElementById('game-canvas');
     this.input=new Input(this.canvas,{onPause:()=>this.pause(),onError:message=>this.hud.toast(message,'warning')});
+    // 手机端为横屏射击：竖屏时提示旋转并暂停对局，遮罩由 body.portrait 驱动。
+    this.touchMode=matchMedia('(pointer: coarse)').matches||new URLSearchParams(location.search).has('touch');
+    this.portrait=matchMedia('(orientation: portrait)');
     this.hud.setScreen('loading');
     this.resize=this.resize.bind(this);
     this.frame=this.frame.bind(this);
@@ -75,6 +80,12 @@ export class Game {
     this.createZoneVisual();
     this.setQuality('high');this.resize();
     window.addEventListener('resize',this.resize);
+    this.touchLayout=new TouchLayout(this.input,{onClose:()=>this.exitTouchLayout()});
+    // 只有真正可用触屏控件时才提供布局编辑入口。
+    if(this.touchLayout.enabled) document.getElementById('touch-layout-button')?.removeAttribute('hidden');
+    if(this.portrait.addEventListener) this.portrait.addEventListener('change',()=>this.syncOrientation());
+    else this.portrait.addListener(()=>this.syncOrientation());
+    this.syncOrientation();
     this.hud.setLoading(1,'海岛已就绪');
     this.menu();
     this.lastFrame=performance.now();this.fps=60;
@@ -132,6 +143,13 @@ export class Game {
   async start(options=this.options) {
     const name=String(options.name??'特种兵').trim().slice(0,16)||'特种兵';
     if(!['normal','hard'].includes(options.difficulty)||!['high','low'].includes(options.quality)) throw new Error('Invalid match settings');
+    // 竖屏无法进行横屏射击，先引导旋转，避免开一局看不见的仗。
+    if(this.touchMode&&this.portrait.matches) {
+      this.hud.toast('请先把手机旋转到横向，再开始行动','warning');
+      return;
+    }
+    // 先发起全屏 / 横屏锁定：必须在用户手势的有效期内调用，不能等 await 之后。
+    this.enterFullscreenLandscape();
     await this.audio.start();
     this.options={difficulty:options.difficulty,quality:options.quality,name};
     this.resetMatch();this.setQuality(this.options.quality);
@@ -153,7 +171,7 @@ export class Game {
     this.plane.position.set(-60,210,540);
     this.planeTime=0;this.phase='plane';this.screen='playing';this.menuHero.root.visible=false;
     this.zoneWall.visible=true;this.nextCircle.visible=true;
-    this.hud.setScreen('playing');this.input.setActive(true);this.input.lock();
+    this.hud.setScreen('playing');this.input.setActive(true);this.touchLayout?.apply();this.input.lock();
     this.hud.toast('行动开始 · 选择落点，按 F 或空格离开运输机');
     this.hud.feed('运输机已进入海岛空域 · 本局 48 名参赛者');
     this.updateZoneVisual();this.updateHud();
@@ -202,8 +220,57 @@ export class Game {
     this.screen='paused';this.input.setActive(false);this.overlay(false,false,false);this.hud.setScreen('paused');
     this.audio.update({speed:0,vehicle:false,airborne:false});
   }
+  /** 横屏是本作在手机端的目标形态：竖屏显示旋转提示，对局中自动暂停避免误操作。 */
+  syncOrientation() {
+    const portrait=this.touchMode&&this.portrait.matches;
+    document.body.classList.toggle('portrait',portrait);
+    if(portrait&&this.screen==='playing') this.pause();
+  }
+  /**
+   * 请求全屏并尝试锁定横屏。必须在用户手势的有效期内同步调用——
+   * 先 await 再请求会丢失手势许可。iOS 不支持锁定，由竖屏提示兜底。
+   */
+  enterFullscreenLandscape() {
+    if(!this.touchMode) return;
+    const element=document.documentElement;
+    const request=element.requestFullscreen||element.webkitRequestFullscreen;
+    try {
+      if(request&&!document.fullscreenElement&&!document.webkitFullscreenElement) {
+        const promise=request.call(element);
+        if(promise?.then) promise.then(()=>this.lockLandscape()).catch(()=>{});
+        return;
+      }
+    } catch { /* 不支持全屏时直接尝试锁定横屏 */ }
+    this.lockLandscape();
+  }
+  lockLandscape() {
+    try {
+      const promise=screen.orientation?.lock?.('landscape');
+      if(promise?.catch) promise.catch(()=>{});
+    } catch { /* 桌面与 iOS 不支持，静默忽略 */ }
+  }
+  /** 从暂停菜单进入布局编辑：先离开对局输入态，编辑期间由 TouchLayout 接管指针。 */
+  editTouchLayout() {
+    if(!this.touchLayout||!this.touchLayout.enabled) return;
+    if(this.touchLayout.editing) return;
+    if(!this.touchLayout.open()) {this.hud.toast('当前设备未启用触屏控件，无法编辑布局','warning');return;}
+    this.hud.setScreen('playing');this.screen='editing';
+  }
+  /** 布局编辑结束：回到暂停菜单，避免带着编辑态直接继续对局。 */
+  exitTouchLayout() {
+    if(this.screen!=='editing') return;
+    this.screen='paused';this.input.setActive(false);this.hud.setScreen('paused');
+    this.touchLayout.apply();
+  }
   async resume() {
     if(this.screen!=='paused') return;
+    // 竖屏下不允许回到对局：否则游戏会在提示遮罩后面继续跑。
+    if(this.touchMode&&this.portrait.matches) {
+      this.hud.toast('请先把手机旋转到横向，再返回战场','warning');
+      return;
+    }
+    // 同样要在用户手势窗口内请求全屏与横屏锁定。
+    this.enterFullscreenLandscape();
     await this.audio.start();
     if(this.screen!=='paused') return;
     this.screen='playing';this.hud.setScreen('playing');this.input.setActive(true);this.input.lock();
@@ -274,18 +341,20 @@ export class Game {
       p.pitch=clamp(p.pitch-controls.dy*.0022*(controls.aim?.6:1),-1.43,1.35);
     }
     const held=blocked?new Set():controls.held;
+    // 键盘为离散 -1/0/1，触屏摇杆为连续量；两者相加后统一夹取，互不干扰。
+    const move=this.mergeMove(held,controls.move);
     this.aim=!blocked&&controls.aim&&p.phase==='ground'&&!this.vehicle;
     this.planeTime+=dt;
     if(this.plane) {this.plane.position.z=540-this.planeTime*42;this.plane.visible=this.planeTime<43;}
     if(p.phase==='plane') {
       p.x=this.plane.position.x;p.y=this.plane.position.y;p.z=this.plane.position.z;
       if(this.planeTime>24) this.jumpFromPlane();
-    } else if(p.phase==='parachute') this.updateParachute(p,dt,held);
-    else if(this.vehicle) this.drive(dt,held);
-    else this.movePlayer(dt,held);
+    } else if(p.phase==='parachute') this.updateParachute(p,dt,held,move);
+    else if(this.vehicle) this.drive(dt,held,move);
+    else this.movePlayer(dt,held,move);
     this.phase=p.phase;
     if(this.action) {
-      const moving=held.has('forward')||held.has('back')||held.has('left')||held.has('right');
+      const moving=move.x!==0||move.y!==0;
       if((this.action.type!=='reload'&&moving)||held.has('fire')) this.cancelAction();
       else this.updateAction(dt);
     }
@@ -327,11 +396,11 @@ export class Game {
     this.hud.toast('WASD 调整落点 · F 提前开伞 · 低空自动开伞');
     this.hud.feed('你已离开运输机');
   }
-  updateParachute(actor,dt,held=new Set()) {
+  updateParachute(actor,dt,held=new Set(),move={x:0,y:0}) {
     const ground=this.collision.floorAt(actor.x,actor.z,actor.y);
     if(actor.y-ground<65) actor.chute=true;
     actor.vy=damp(actor.vy,actor.chute?-7:-29,3,dt);
-    let forward=(held.has('forward')?1:0)-(held.has('back')?1:0),side=(held.has('right')?1:0)-(held.has('left')?1:0);
+    let forward=move.y,side=move.x;
     if(!actor.chute) forward+=.25;
     const speed=actor.chute?12:18,angle=actor.yaw;
     const next=this.collision.move(actor,(-Math.sin(angle)*forward+Math.cos(angle)*side)*speed*dt,(-Math.cos(angle)*forward-Math.sin(angle)*side)*speed*dt);
@@ -350,14 +419,25 @@ export class Game {
     if(this.collision.blocked(p.x,p.y+.01,p.z,.36,height)){this.hud.toast('上方空间不足，无法起身','warning');return;}
     p.crouch=crouch;p.prone=prone;this.action=null;
   }
-  movePlayer(dt,held) {
+  /** 把键盘方向键与摇杆位移合成一个长度不超过 1 的移动向量（y 前为正，x 右为正）。 */
+  mergeMove(held, stick) {
+    const forward=Number(held.has('forward'))-Number(held.has('back'));
+    const side=Number(held.has('right'))-Number(held.has('left'));
+    let x=side+(stick?.x||0),y=forward+(stick?.y||0);
+    const length=Math.hypot(x,y);
+    if(length>1){x/=length;y/=length;}
+    return {x,y};
+  }
+  movePlayer(dt,held,move={x:0,y:0}) {
     const p=this.player;
     const wasGrounded=p.vy<=0&&p.y<=this.collision.floorAt(p.x,p.z,p.y+.05)+.05;
-    let forward=Number(held.has('forward'))-Number(held.has('back')),side=Number(held.has('right'))-Number(held.has('left'));
+    let forward=move.y,side=move.x;
     const length=Math.hypot(forward,side);if(length>1){forward/=length;side/=length;}
     const sprint=held.has('sprint')&&!this.aim&&!p.crouch&&!p.prone;
     const maxSpeed=p.prone?1.25:p.crouch?2.4:held.has('walk')?2.5:this.aim?3.2:sprint?7.5:4.7;
-    const speed=maxSpeed*(this.boost>50?1.06:1);
+    // 摇杆推杆幅度决定速度：轻推慢走、推满全速，键盘保持原速。
+    const analogue=Math.min(1,Math.hypot(forward,side));
+    const speed=maxSpeed*analogue*(this.boost>50?1.06:1);
     const dx=(-Math.sin(p.yaw)*forward+Math.cos(p.yaw)*side)*speed*dt;
     const dz=(-Math.cos(p.yaw)*forward-Math.sin(p.yaw)*side)*speed*dt;
     const next=this.collision.move(p,dx,dz,.36,p.prone?.55:p.crouch?1.2:1.75);
@@ -621,15 +701,15 @@ export class Game {
     }
   }
 
-  drive(dt,held) {
+  drive(dt,held,move={x:0,y:0}) {
     const v=this.vehicle,p=this.player;
-    const throttle=Number(held.has('forward'))-Number(held.has('back'));
+    const throttle=move.y;
     const brake=held.has('jump');
     const cap=held.has('sprint')?29:23;
     if(brake) v.speed=damp(v.speed,0,7,dt);
     else if(throttle) v.speed=clamp(v.speed+throttle*10*dt,-8,cap);
     else v.speed=damp(v.speed,0,.55,dt);
-    const steer=Number(held.has('left'))-Number(held.has('right'));
+    const steer=-move.x;
     v.yaw+=steer*dt*1.3*clamp(v.speed/6,-1,1);
     const dx=-Math.sin(v.yaw)*v.speed*dt,dz=-Math.cos(v.yaw)*v.speed*dt;
     const next=this.collision.move({x:v.x,y:v.y+.15,z:v.z},dx,dz,1.25,2.1);
