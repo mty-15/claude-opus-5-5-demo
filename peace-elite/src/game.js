@@ -137,7 +137,7 @@ export class Game {
     this.screen='menu';this.input.setActive(false);
     this.resetMatch();this.menuHero.root.visible=true;
     this.hud.setScreen('menu');this.audio.update({speed:0,vehicle:false,airborne:false});
-    document.body.classList.remove('aiming','scoped','outside-zone','in-vehicle');
+    document.body.classList.remove('aiming','scoped','outside-zone','in-vehicle','airborne');
   }
 
   async start(options=this.options) {
@@ -313,8 +313,8 @@ export class Game {
     if(pressed.has('help')) this.overlay(false,false,!this.helpOpen);
     if(this.mapOpen||this.inventoryOpen||this.helpOpen) return;
     if(pressed.has('view')) this.thirdPerson=!this.thirdPerson;
-    if(p.phase==='plane') {if(pressed.has('interact')||pressed.has('jump')) this.jumpFromPlane();return;}
-    if(p.phase==='parachute') {if(pressed.has('interact')||pressed.has('jump')) {p.chute=true;this.hud.toast('降落伞已展开 · WASD 控制落点');}return;}
+    if(p.phase==='plane') {if(pressed.has('airdrop')||pressed.has('interact')||pressed.has('jump')) this.jumpFromPlane();return;}
+    if(p.phase==='parachute') {if(pressed.has('airdrop')||pressed.has('interact')||pressed.has('jump')) this.openChute();return;}
     if(pressed.has('crouch')) this.setPosture('crouch');
     if(pressed.has('prone')) this.setPosture('prone');
     if(pressed.has('slot1')) this.selectSlot(0);
@@ -375,6 +375,7 @@ export class Game {
     if(this.screen!=='playing') return;
     const outside=isOutsideZone(p.x,p.z,this.zoneInfo);
     document.body.classList.toggle('outside-zone',outside);
+    document.body.classList.toggle('airborne',p.phase==='plane'||p.phase==='parachute');
     this.zoneWarn-=dt;
     if(outside&&this.zoneWarn<=0) {this.hud.toast('你在信号区外！立即进入安全区','warning');this.audio.zone();this.zoneWarn=8;}
     if(this.lastZonePhase!==this.zoneInfo.phase||this.lastZoneMode!==this.zoneInfo.mode) {
@@ -393,8 +394,15 @@ export class Game {
   jumpFromPlane() {
     const p=this.player;if(p.phase!=='plane') return;
     p.phase='parachute';p.chute=false;p.vy=-16;p.pitch=-.42;
-    this.hud.toast('WASD 调整落点 · F 提前开伞 · 低空自动开伞');
+    this.hud.toast(this.touchMode?'摇杆调整落点 · 开伞按钮提前开伞 · 低空自动开伞':'WASD 调整落点 · F 提前开伞 · 低空自动开伞');
     this.hud.feed('你已离开运输机');
+  }
+  /** 手动开伞。桌面端 F/空格，手机端用跳伞按钮；重复触发无副作用。 */
+  openChute() {
+    const p=this.player;
+    if(p.phase!=='parachute'||p.chute) return;
+    p.chute=true;
+    this.hud.toast('降落伞已展开 · 摇杆微调落点');
   }
   updateParachute(actor,dt,held=new Set(),move={x:0,y:0}) {
     const ground=this.collision.floorAt(actor.x,actor.z,actor.y);
@@ -409,7 +417,7 @@ export class Game {
     actor.y=vertical.y;actor.vy=vertical.vy;
     if(vertical.grounded) {
       actor.phase='ground';actor.chute=false;
-      if(actor.isPlayer) {this.hud.toast('落地！按 F 搜集武器与物资 · H 查看完整键位');this.hud.feed('已进入地面作战');}
+      if(actor.isPlayer) {this.hud.toast(this.touchMode?'落地！靠近物资点按「互动」搜集 · 用摇杆移动':'落地！按 F 搜集武器与物资 · H 查看完整键位');this.hud.feed('已进入地面作战');}
     }
   }
 
@@ -877,14 +885,15 @@ export class Game {
     const p=this.player;if(!p)return;
     const slot=p.inventory.slots[p.inventory.active],weapon=this.weapon();
     let prompt='';
-    if(p.phase==='plane') prompt='F / 空格  跳伞 · 选择你的降落地点';
-    else if(p.phase==='parachute') prompt=p.chute?'WASD 调整方向 · 靠近建筑搜集装备':'F / 空格 开伞 · WASD 调整落点';
-    else if(this.vehicle) prompt='F 下车 · 空格 刹车 · Shift 加速';
+    const tap=this.touchMode?'『互动』':'F';
+    if(p.phase==='plane') prompt=this.touchMode?'点击「跳伞」选择你的降落地点':'F / 空格  跳伞 · 选择你的降落地点';
+    else if(p.phase==='parachute') prompt=p.chute?'摇杆调整方向 · 靠近建筑搜集装备':(this.touchMode?'点击「开伞」提前展开降落伞':'F / 空格 开伞 · WASD 调整落点');
+    else if(this.vehicle) prompt=this.touchMode?'『互动』下车 · 摇杆控制油门与转向':'F 下车 · 空格 刹车 · Shift 加速';
     else {
       const loot=this.nearestLoot(p);
-      if(loot) prompt=`F 拾取 ${lootLabel(loot.item)}`;
-      else if(this.vehicles.some(v=>dist(v,p)<4.5))prompt='F 驾驶越野车';
-      else if(!weapon)prompt='寻找地面装备 · F 拾取 · M 查看地图';
+      if(loot) prompt=`${tap} 拾取 ${lootLabel(loot.item)}`;
+      else if(this.vehicles.some(v=>dist(v,p)<4.5))prompt=`${tap} 驾驶越野车`;
+      else if(!weapon)prompt=this.touchMode?'寻找地面装备 · 靠近后按「互动」拾取':'寻找地面装备 · F 拾取 · M 查看地图';
     }
     const markers=[{x:p.x,z:p.z,type:'player',heading:(-p.yaw*180/Math.PI+360)%360},...this.vehicles.map(v=>({x:v.x,z:v.z,type:'vehicle'}))];
     this.hud.update({phase:p.phase,alive:this.actors.filter(a=>a.alive).length,kills:this.kills,health:p.health,armor:p.inventory.armor,helmet:p.inventory.helmet,
@@ -893,6 +902,9 @@ export class Game {
       zone:this.zoneInfo,position:{x:p.x,z:p.z},locations:this.world.locations,markers,prompt,
       action:this.action?{label:this.action.label,progress:1-this.action.remaining/this.action.total}:null,
       airTime:p.phase==='plane'?Math.max(0,24-this.planeTime):Math.max(0,p.y-this.world.heightAt(p.x,p.z)),vehicle:!!this.vehicle,fps:Math.round(this.fps),time:this.time,
+      chute:!!p.chute,touch:this.touchMode,
+      // 空中阶段收起战斗键，把屏幕让给跳伞/开伞按钮。
+      airborne:p.phase==='plane'||p.phase==='parachute',
       fireMode:weapon?(weapon.automatic&&this.fireModeAuto?'自动':'单发'):'近战',aim:this.aim});
   }
   finish(win) {
@@ -901,6 +913,6 @@ export class Game {
     this.overlay(false,false,false);this.audio.update({speed:0,vehicle:false,airborne:false});this.audio.end(win);
     const rank=win?1:this.actors.filter(a=>a.alive).length+1;
     this.hud.showResult({win,rank,kills:this.kills,time:this.time,damage:Math.round(this.damageDone),name:this.options.name});
-    this.hud.setScreen('result');document.body.classList.remove('aiming','scoped','outside-zone');
+    this.hud.setScreen('result');document.body.classList.remove('aiming','scoped','outside-zone','airborne');
   }
 }

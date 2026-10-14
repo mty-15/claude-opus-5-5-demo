@@ -237,7 +237,10 @@ export class HUD {
     this._hidden('air-status', state.phase !== 'plane' && state.phase !== 'parachute');
     this._text('air-phase', state.phase === 'parachute' ? '距地高度' : '离机倒计时');
     this._text('air-time', finite(state.airTime) ? `${Math.max(0, Math.ceil(state.airTime))} ${state.phase === 'parachute' ? 'm' : 's'}` : '—');
-    this._text('air-note', state.phase === 'parachute' ? 'WASD 控制落点 · F 展开降落伞' : '观察落点 · F 离开运输机');
+    this._text('air-note', state.phase === 'parachute'
+      ? (state.touch ? '摇杆控制落点 · 低空自动开伞' : 'WASD 控制落点 · 低空自动开伞')
+      : (state.touch ? '观察落点 · 选择跳伞时机' : '观察落点 · F 离开运输机'));
+    this._updateAirdrop(state.phase, state.chute);
     const now = performance.now();
     if (now - this.lastTelemetry >= 200) {
       this.lastTelemetry = now;
@@ -282,6 +285,22 @@ export class HUD {
     this._text('map-zone-timer', clock(zone?.remaining));
     this._text('map-zone-radius', number(zone?.radius, ' m'));
     this._text('map-next-radius', number(zone?.nextRadius, ' m'));
+  }
+  /**
+   * 手机没有空格键，跳伞/开伞必须给一个可点的按钮。
+   * 运输机阶段显示「跳伞」，自由落体阶段显示「开伞」，开伞后隐藏。
+   */
+  _updateAirdrop(phase, chute) {
+    const button = this.elements['touch-airdrop'];
+    if (!button) return;
+    const label = phase === 'plane' ? '跳伞' : '开伞';
+    const hint = phase === 'plane' ? '离开运输机' : '展开降落伞';
+    const visible = phase === 'plane' || (phase === 'parachute' && !chute);
+    this._text('touch-airdrop-label', label);
+    this._text('touch-airdrop-hint', hint);
+    button.setAttribute('aria-label', hint);
+    this._hidden('touch-airdrop', !visible);
+    this._class('touch-airdrop', 'is-parachute', phase === 'parachute');
   }
   _updatePrompt(prompt, action) {
     this._hidden('interaction-prompt', !prompt);

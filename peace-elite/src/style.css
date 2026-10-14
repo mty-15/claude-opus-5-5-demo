@@ -60,6 +60,18 @@ body.portrait #hud:is([data-screen=playing],[data-screen=paused],[data-screen=re
 .touch-layout-message{margin-top:9px;min-height:14px;font-size:10px;color:var(--gold)}
 .touch-controls :is(button,.touch-stick).is-layout-selected{outline:2px solid var(--bright);outline-offset:2px}
 
+/* ---------- 跳伞 / 开伞按钮（手机没有空格键） ---------- */
+/* 参考和平精英：离机与开伞各有一个专属的醒目按钮，放在右手拇指自然落点。
+   选择器用 .touch-controls button.touch-airdrop 提高优先级，压过通用的 .touch-controls button。 */
+.touch-controls button.touch-airdrop{position:absolute;bottom:120px;right:max(30px,env(safe-area-inset-right));width:118px;height:118px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:2px solid #e6bd60cc;background:radial-gradient(circle at 38% 32%,#f3d98be0,#c99a2ce0);color:#1b1508;font-weight:700;letter-spacing:2px;font-size:19px;text-shadow:0 1px 2px #fff6;box-shadow:0 4px 22px #0007,0 0 26px #e6bd6059;animation:airdropPulse 1.5s ease-in-out infinite}
+.touch-controls button.touch-airdrop>small{font-size:9px;font-weight:400;letter-spacing:0;opacity:.8}
+.touch-controls button.touch-airdrop:active{background:radial-gradient(circle at 38% 32%,#f3d98be0,#c99a2ce0);filter:brightness(.9)}
+.touch-controls button.touch-airdrop.is-parachute{border-color:#dce2c9cc;background:radial-gradient(circle at 38% 32%,#5d6a52f2,#2b3524f2);color:var(--ink);text-shadow:0 1px 3px #000a;box-shadow:0 4px 18px #0007;animation:none}
+@keyframes airdropPulse{0%,100%{transform:scale(1);box-shadow:0 4px 22px #0007,0 0 22px #e6bd6040}50%{transform:scale(1.05);box-shadow:0 4px 22px #0007,0 0 34px #e6bd6080}}
+/* 空中阶段收起右侧战斗键与道具键，避免与跳伞按钮重叠 */
+body.airborne .touch-combat,
+body.airborne .touch-utility{opacity:0;pointer-events:none}
+
 /* 编辑布局时淡出其余 HUD，让按键位置看得清 */
 body.touch-layout-editing .top-left,
 body.touch-layout-editing .top-right,
