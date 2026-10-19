@@ -173,7 +173,7 @@ export class Game {
     this.planeTime=0;this.phase='plane';this.screen='playing';this.menuHero.root.visible=false;
     this.zoneWall.visible=true;this.nextCircle.visible=true;
     this.hud.setScreen('playing');this.input.setActive(true);this.touchLayout?.apply();this.input.lock();
-    this.hud.toast('行动开始 · 选择落点，按 F 或空格离开运输机');
+    this.hud.toast(this.touchMode?'行动开始 · 选择落点，点右侧「跳伞」离开运输机':'行动开始 · 选择落点，按 F 或空格离开运输机');
     this.hud.feed('运输机已进入海岛空域 · 本局 48 名参赛者');
     this.updateZoneVisual();this.updateHud();
   }
@@ -514,7 +514,7 @@ export class Game {
     const loot=this.nearestLoot(p);
     if(loot) {this.pickup(p,loot);return;}
     const vehicle=this.vehicles.find(v=>dist(v,p)<4.5);
-    if(vehicle) {this.vehicle=vehicle;this.action=null;p.prone=false;p.crouch=false;this.hud.toast('W/S 油门与倒车 · A/D 转向 · 空格刹车 · F 下车');document.body.classList.add('in-vehicle');}
+    if(vehicle) {this.vehicle=vehicle;this.action=null;p.prone=false;p.crouch=false;this.hud.toast(this.touchMode?'摇杆控制油门与转向 · 『互动』下车':'W/S 油门与倒车 · A/D 转向 · 空格刹车 · F 下车');document.body.classList.add('in-vehicle');}
   }
   pickup(actor,loot) {
     const result=addLoot(actor.inventory,loot.item);
@@ -734,7 +734,7 @@ export class Game {
       v.speed*=.25;
     }
     v.x=next.x;v.z=next.z;v.y=this.collision.floorAt(v.x,v.z,v.y+.65,1.25);
-    if(v.y<.2) {v.speed=damp(v.speed,0,5,dt);if(this.actionErrorCooldown===0){this.hud.toast('水域无法行驶，请按 F 下车','warning');this.actionErrorCooldown=3;}}
+    if(v.y<.2) {v.speed=damp(v.speed,0,5,dt);if(this.actionErrorCooldown===0){this.hud.toast(this.touchMode?'水域无法行驶，请点『互动』下车':'水域无法行驶，请按 F 下车','warning');this.actionErrorCooldown=3;}}
     v.root.position.set(v.x,v.y,v.z);v.root.rotation.y=v.yaw;
     v.root.traverse(child=>{if(child.name==='wheel')child.rotation.x-=v.speed*dt/0.45;});
     p.x=v.x;p.z=v.z;p.y=v.y+.65;p.speed=Math.abs(v.speed);
@@ -902,7 +902,7 @@ export class Game {
     let prompt='';
     const tap=this.touchMode?'『互动』':'F';
     if(p.phase==='plane') prompt=this.touchMode?'点击「跳伞」选择你的降落地点':'F / 空格  跳伞 · 选择你的降落地点';
-    else if(p.phase==='parachute') prompt=p.chute?'摇杆调整方向 · 靠近建筑搜集装备':(this.touchMode?'点击「开伞」提前展开降落伞':'F / 空格 开伞 · WASD 调整落点');
+    else if(p.phase==='parachute') prompt=p.chute?(this.touchMode?'摇杆调整方向 · 靠近建筑搜集装备':'WASD 调整方向 · 靠近建筑搜集装备'):(this.touchMode?'点击「开伞」提前展开降落伞':'F / 空格 开伞 · WASD 调整落点');
     else if(this.vehicle) prompt=this.touchMode?'『互动』下车 · 摇杆控制油门与转向':'F 下车 · 空格 刹车 · Shift 加速';
     else {
       const loot=this.nearestLoot(p);

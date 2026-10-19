@@ -82,6 +82,12 @@ body.airborne .touch-combat,
 body.airborne .touch-utility,
 body.airborne .weapon-block{opacity:0;pointer-events:none}
 
+/* 触屏设备上隐藏 HUD 里的键盘键位提示（M / V / Esc / Tab / R / 数字键）。
+   只针对常驻 HUD；帮助、地图、背包浮层里的键位表是给桌面端查的，保留。 */
+body.is-touch .game-hud kbd{display:none}
+/* 桌面专属说明（鼠标锁定等）在触屏上没有意义 */
+body.is-touch .desktop-only-note{display:none}
+
 /* 编辑布局时淡出其余 HUD，让按键位置看得清 */
 body.touch-layout-editing .top-left,
 body.touch-layout-editing .top-right,

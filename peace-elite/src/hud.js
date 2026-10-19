@@ -241,6 +241,9 @@ export class HUD {
       ? (state.touch ? '摇杆控制落点 · 低空自动开伞' : 'WASD 控制落点 · 低空自动开伞')
       : (state.touch ? '观察落点 · 选择跳伞时机' : '观察落点 · F 离开运输机'));
     this._updateAirdrop(state.phase, state.chute);
+    // 手机没有 V 键，切视角改为可点按钮；触屏上按键提示（M/V/Esc）也没意义，用 body.is-touch 隐藏。
+    this._hidden('touch-view', !state.touch);
+    document.body.classList.toggle('is-touch', !!state.touch);
     const now = performance.now();
     if (now - this.lastTelemetry >= 200) {
       this.lastTelemetry = now;
