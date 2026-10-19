@@ -25,7 +25,7 @@ export class Game {
     this.screen='loading';this.elapsed=0;this.menuTime=0;this.time=0;this.matchCount=0;
     this.actors=[];this.loot=[];this.vehicles=[];this.grenades=[];this.particles=[];this.tracers=[];
     this.options={difficulty:'normal',quality:'high',name:'特种兵'};
-    this.mapOpen=false;this.inventoryOpen=false;this.helpOpen=false;this.thirdPerson=false;
+    this.mapOpen=false;this.inventoryOpen=false;this.helpOpen=false;this.thirdPerson=true;
     this.audio=new AudioEngine();
     this.hud=new HUD({
       start:options=>this.start(options),resume:()=>this.resume(),restart:()=>this.start(this.options),menu:()=>this.menu(),
@@ -83,6 +83,7 @@ export class Game {
     this.touchLayout=new TouchLayout(this.input,{onClose:()=>this.exitTouchLayout()});
     // 只有真正可用触屏控件时才提供布局编辑入口。
     if(this.touchLayout.enabled) document.getElementById('touch-layout-button')?.removeAttribute('hidden');
+    this.bindRotateHint();
     if(this.portrait.addEventListener) this.portrait.addEventListener('change',()=>this.syncOrientation());
     else this.portrait.addListener(()=>this.syncOrientation());
     this.syncOrientation();
@@ -403,6 +404,12 @@ export class Game {
     if(p.phase!=='parachute'||p.chute) return;
     p.chute=true;
     this.hud.toast('降落伞已展开 · 摇杆微调落点');
+  }
+  /** 竖屏提示上的按钮：进入全屏并尝试锁定横屏。遮罩挂在 body 下、不在 #hud 内，需单独接线。 */
+  bindRotateHint() {
+    const button=document.getElementById('rotate-fullscreen');
+    if(!button) return;
+    button.addEventListener('click',()=>this.enterFullscreenLandscape());
   }
   updateParachute(actor,dt,held=new Set(),move={x:0,y:0}) {
     const ground=this.collision.floorAt(actor.x,actor.z,actor.y);
