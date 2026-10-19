@@ -866,14 +866,22 @@ export class Game {
       this.camera.lookAt(p.x,p.y-10,p.z-40);fov=62;
       p.model.root.visible=false;
     } else if(third) {
-      const distance=this.vehicle?8:p.phase==='parachute'?9:4.1;
+      const distance=this.vehicle?8:p.phase==='parachute'?9:3.3;
       const pitch=p.phase==='parachute'?Math.max(-.65,p.pitch):clamp(p.pitch,-.7,.8);
       const direction=dirFor(p.yaw,pitch);
-      const focus=new THREE.Vector3(position.x,position.y+(this.vehicle?1:.45),position.z);
+      // 焦点压到胸口高度：越肩视角要让角色完整入画（含腿脚），对准头部会把身体挤出画面底部。
+      // 再往下 (-.5) 则脚会落进底部道具键区域，-.42 是让整个人刚好落在 HUD 上方的折中值。
+      const focus=new THREE.Vector3(position.x,position.y+(this.vehicle?1:-.42),position.z);
       const backwards=direction.clone().negate();
       const clear=this.collision.ray(focus,backwards,distance);
       const cameraDistance=Math.max(.35,Math.min(distance,clear-.2));
       this.camera.position.copy(focus).addScaledVector(direction,-cameraDistance);
+      // 右肩偏移：镜头偏向右侧，角色让到画面左侧，露出前方视野（与和平精英手感一致）。
+      // 注意 cross() 会原地修改向量，必须 clone()，否则会污染上面的 direction。
+      if(!this.vehicle&&p.phase==='ground') {
+        const right=direction.clone().cross(new THREE.Vector3(0,1,0)).normalize();
+        this.camera.position.addScaledVector(right,-.62);
+      }
       this.camera.position.y=Math.max(this.camera.position.y,this.world.heightAt(this.camera.position.x,this.camera.position.z)+.4);
       this.camera.lookAt(focus.addScaledVector(direction,10));
     } else {
