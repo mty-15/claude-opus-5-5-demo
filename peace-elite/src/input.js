@@ -6,9 +6,11 @@ const KEYS = {
 };
 // 侧身与开火一样是「按住生效、松手复位」的持续动作，需登记为 held。
 const TOUCH_HELD = new Set(['fire','leanLeft','leanRight']);
-// 摇杆死区与最大行程（相对摇杆直径的比例）。
-const STICK_DEADZONE = .14;
-const STICK_TRAVEL = .36;
+// 摇杆死区与满速行程（相对摇杆直径的比例）。
+// 行程取 0.44 而不是更小的值：手机上拇指的实际可动半径有限，行程太大就永远推不满，
+// 速度会卡在 60%~80%。同时 STICK_DEADZONE 降到 0.10，减少「推了没反应」的空走段。
+const STICK_DEADZONE = .10;
+const STICK_TRAVEL = .44;
 
 export class Input {
   constructor(canvas, { onPause, onError }) {
@@ -124,8 +126,10 @@ export class Input {
     const knob = this.stickRoot.querySelector('.touch-stick-knob');
     if (knob) knob.style.transform = `translate(${dx}px,${dy}px)`;
     // 死区内视为静止，避免手指微抖导致角色缓慢漂移。
+    // 死区外线性映射到 0..1（与 cf-transport-ship 的 dx/travel 一致）：不做 (raw-deadzone)/(1-deadzone)
+    // 的重新归一化，否则轻推的增益会被放大，推杆前段立刻满速、失去「轻推慢走」的层次。
     const raw = length ? Math.min(1, length / centre.travel) : 0;
-    const scaled = raw <= STICK_DEADZONE ? 0 : (raw - STICK_DEADZONE) / (1 - STICK_DEADZONE);
+    const scaled = raw <= STICK_DEADZONE ? 0 : raw;
     const unit = length ? 1 / length : 0;
     this.move = { x: dx * unit * scaled, y: -dy * unit * scaled };
   }

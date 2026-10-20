@@ -3,6 +3,9 @@ import { Game } from './game.js';
 async function boot() {
   const game = new Game();
   await game.init();
+  // 调试入口：加 ?debug 时把实例挂到 window，方便在控制台/自动化里读取状态。
+  // 正式游玩不带该参数，不会外泄内部对象。
+  if (new URLSearchParams(location.search).has('debug')) window.__game = game;
 }
 
 function report(error) {
