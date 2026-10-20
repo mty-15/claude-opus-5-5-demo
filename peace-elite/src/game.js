@@ -30,6 +30,7 @@ export class Game {
     this.hud=new HUD({
       start:options=>this.start(options),resume:()=>this.resume(),restart:()=>this.start(this.options),menu:()=>this.menu(),
       setVolume:value=>this.audio.setVolume(value),setQuality:value=>this.setQuality(value),
+      setFireMode:auto=>this.setFireMode(auto),
       editTouchLayout:()=>this.editTouchLayout(),
     });
     this.canvas=document.getElementById('game-canvas');
@@ -321,7 +322,7 @@ export class Game {
     if(pressed.has('slot1')) this.selectSlot(0);
     if(pressed.has('slot2')) this.selectSlot(1);
     if(pressed.has('nextSlot')) this.selectSlot(1-p.inventory.active);
-    if(pressed.has('fireMode')&&this.weapon()?.automatic){this.fireModeAuto=!this.fireModeAuto;this.hud.toast(this.fireModeAuto?'射击模式：自动':'射击模式：单发');}
+    if(pressed.has('fireMode')&&this.weapon()?.automatic) this.setFireMode(!this.fireModeAuto);
     if(pressed.has('reload')) this.beginReload();
     if(pressed.has('heal')) this.beginHeal(false);
     if(pressed.has('boost')) this.beginHeal(true);
@@ -392,6 +393,11 @@ export class Game {
     this.audio.update({speed:p.speed,vehicle:!!this.vehicle,airborne:p.phase!=='ground'});
   }
 
+  /** 切换射击模式。桌面端 B 键，手机端在暂停菜单里选；仅对全自动武器有意义。 */
+  setFireMode(auto) {
+    this.fireModeAuto=!!auto;
+    this.hud.toast(this.fireModeAuto?'射击模式：全自动':'射击模式：单发');
+  }
   jumpFromPlane() {
     const p=this.player;if(p.phase!=='plane') return;
     p.phase='parachute';p.chute=false;p.vy=-16;p.pitch=-.42;

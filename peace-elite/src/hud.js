@@ -10,7 +10,7 @@ const FIRE_MODES = Object.freeze({ auto: '全自动', automatic: '全自动', si
 const ZONE_LABELS = Object.freeze({ waiting: '安全区收缩倒计时', shrinking: '安全区正在收缩', finished: '最终安全区' });
 const PHASE_LABELS = Object.freeze({ plane: '运输机航行', parachute: '空降部署', ground: '地面行动' });
 const SCREENS = ['loading', 'menu', 'playing', 'paused', 'result'];
-const ACTIONS = ['start', 'resume', 'restart', 'menu', 'setVolume', 'setQuality', 'editTouchLayout'];
+const ACTIONS = ['start', 'resume', 'restart', 'menu', 'setVolume', 'setQuality', 'setFireMode', 'editTouchLayout'];
 const NAVIGATION = new Set(['start', 'resume', 'restart', 'menu']);
 const OVERLAYS = ['map', 'inventory', 'help'];
 function finite(value) { return typeof value === 'number' && Number.isFinite(value); }
@@ -152,6 +152,10 @@ export class HUD {
         this._runAction('setQuality', event.target.value);
       });
     }
+    // 射击模式：手机没有 B 键，放进暂停菜单；命中自动枪械时才有意义。
+    this.elements['pause-fire-mode'].addEventListener('change', event => {
+      this._runAction('setFireMode', event.target.value === 'auto');
+    });
     // Do not bind data-touch or keyboard handlers: main input is their single owner.
   }
 
@@ -241,6 +245,13 @@ export class HUD {
       ? (state.touch ? '摇杆控制落点 · 低空自动开伞' : 'WASD 控制落点 · 低空自动开伞')
       : (state.touch ? '观察落点 · 选择跳伞时机' : '观察落点 · F 离开运输机'));
     this._updateAirdrop(state.phase, state.chute);
+    // 暂停菜单里的射击模式下拉要与当前状态一致（按 B 或菜单切换后都同步）
+    if (state.fireMode) {
+      const auto = state.fireMode === '自动' || state.fireMode === '全自动';
+      const select = this.elements['pause-fire-mode'];
+      const want = auto ? 'auto' : 'single';
+      if (select.value !== want) select.value = want;
+    }
     // 手机没有 V 键，切视角改为可点按钮；触屏上按键提示（M/V/Esc）也没意义，用 body.is-touch 隐藏。
     this._hidden('touch-view', !state.touch);
     document.body.classList.toggle('is-touch', !!state.touch);

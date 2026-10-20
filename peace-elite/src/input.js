@@ -4,7 +4,8 @@ const KEYS = {
   KeyF:'interact', KeyB:'fireMode', KeyR:'reload', Digit1:'slot1', Digit2:'slot2', KeyG:'grenade', Digit7:'heal', Digit8:'boost',
   KeyM:'map', Tab:'inventory', KeyV:'view', KeyH:'help', Escape:'pause', KeyQ:'leanLeft', KeyE:'leanRight',
 };
-const TOUCH_HELD = new Set(['fire']);
+// 侧身与开火一样是「按住生效、松手复位」的持续动作，需登记为 held。
+const TOUCH_HELD = new Set(['fire','leanLeft','leanRight']);
 // 摇杆死区与最大行程（相对摇杆直径的比例）。
 const STICK_DEADZONE = .14;
 const STICK_TRAVEL = .36;

@@ -88,6 +88,32 @@ body.is-touch .game-hud kbd{display:none}
 /* 桌面专属说明（鼠标锁定等）在触屏上没有意义 */
 body.is-touch .desktop-only-note{display:none}
 
+/* ---------- 姿态与侧身键组 ---------- */
+/* 参考和平精英布局原则：趴键放左手侧（趴下后对移动需求低，可边开火边趴）；
+   探头键放在开火键附近方便拇指够到，但避开中央拖动视角的留白区。
+   趴下键放在摇杆正右侧的空白处：屏幕顶部被相位标签与击杀播报占满，左侧只有这里净空。 */
+.touch-extra{position:absolute;bottom:150px;left:136px}
+.touch-extra button{width:46px;height:38px;border-radius:6px;font-size:9px;letter-spacing:0}
+.touch-lean{position:absolute;bottom:186px;right:calc(max(22px,env(safe-area-inset-right)) + 148px);display:flex;flex-direction:column;gap:6px}
+.touch-lean button{width:40px;height:40px;border-radius:50%;font-size:13px;line-height:1}
+
+/* 矮横屏（手机）下压缩暂停/结算对话框。设置项改两列排布，避免多加一项就溢出屏幕外。
+   390px 高的横屏上原对话框高约 509px，只靠缩字号仍会溢出 129px。 */
+@media(max-height:460px){
+  .modal-screen{padding:8px;align-items:center}
+  .dialog{padding:14px 16px;width:min(520px,calc(100% - 8px));max-height:calc(100dvh - 16px);overflow:auto}
+  .dialog h2{font-size:22px;margin-top:6px;letter-spacing:3px}
+  .dialog-intro{display:none}
+  .primary-button{min-height:44px}
+  .pause-settings{display:grid;grid-template-columns:1fr 1fr;gap:0 18px;margin:10px 0 8px;padding-bottom:8px}
+  .setting-row{font-size:10px;margin-top:6px}
+  .pause-settings>input[type=range]{margin:6px 0 8px;height:3px}
+  .dialog-actions{flex-wrap:wrap;gap:8px}
+  .secondary-button{min-height:34px;padding:6px 12px;font-size:11px}
+  .return-menu{margin:10px 0 6px}
+  .pause-dialog .small-note{display:none}
+}
+
 /* 编辑布局时淡出其余 HUD，让按键位置看得清 */
 body.touch-layout-editing .top-left,
 body.touch-layout-editing .top-right,

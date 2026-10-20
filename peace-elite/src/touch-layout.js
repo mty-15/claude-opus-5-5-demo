@@ -272,7 +272,6 @@ export class TouchLayout {
     this.input.reset();
     this.draft = { ...this.defaults, ...this.layout };
     this.editing = true;
-    this.root.classList.add('is-layout-editing');
     document.body.classList.add('touch-layout-editing');
     this.editor.hidden = false;
     this.message.textContent = '';
@@ -288,7 +287,6 @@ export class TouchLayout {
     if (save) this.layout = next || this.draft;
     this.editing = false;
     this.draft = null;
-    this.root.classList.remove('is-layout-editing');
     document.body.classList.remove('touch-layout-editing');
     this.editor.hidden = true;
     this.input.setTouchEditing(false);
