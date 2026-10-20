@@ -338,20 +338,31 @@ export function createSoldier({ color = 0x647466, player = false } = {}) {
   a.box(hips, [0.32, 0.17, 0.21], p.darkCloth, [0, 0.012, 0]);
   a.box(hips, [0.355, 0.045, 0.234], p.webbing, [0, 0.081, 0]);
   a.box(hips, [0.05, 0.038, 0.018], p.steel, [0, 0.08, -0.126]);
-  a.box(torso, [0.39, 0.40, 0.235], p.cloth, [0, 0.295, 0]);
-  a.box(torso, [0.345, 0.34, 0.052], p.armor, [0, 0.291, -0.14]);
-  a.box(torso, [0.31, 0.3, 0.036], p.darkCloth, [0, 0.30, 0.14]);
-  a.box(torso, [0.25, 0.17, 0.018], p.webbing, [0, 0.348, -0.175]);
+  a.box(torso, [0.36, 0.38, 0.22], p.cloth, [0, 0.295, 0]);
+  a.box(torso, [0.32, 0.32, 0.055], p.armor, [0, 0.291, -0.133]);
+  a.box(torso, [0.29, 0.29, 0.036], p.darkCloth, [0, 0.30, 0.13]);
+  a.box(torso, [0.245, 0.195, 0.022], p.webbing, [0, 0.345, -0.17]);
+  a.box(torso, [0.19, 0.092, 0.018], p.cloth, [0, 0.435, -0.17]);
+  a.box(torso, [0.125, 0.028, 0.012], p.armor, [0, 0.466, -0.184]);
   for (const side of [-1, 1]) {
-    a.box(torso, [0.048, 0.37, 0.028], p.webbing, [side * 0.135, 0.33, -0.177], [0, 0, side * -0.07]);
-    a.box(torso, [0.052, 0.048, 0.30], p.webbing, [side * 0.137, 0.484, 0]);
+    a.box(torso, [0.108, 0.122, 0.035], p.armor, [side * 0.075, 0.276, -0.165]);
+    a.box(torso, [0.093, 0.076, 0.044], p.webbing, [side * 0.074, 0.382, -0.174]);
+    a.box(torso, [0.071, 0.047, 0.012], p.cloth, [side * 0.074, 0.371, -0.201]);
+    a.box(torso, [0.058, 0.025, 0.012], p.rubber, [side * 0.074, 0.421, -0.201]);
+  }
+  for (const side of [-1, 1]) {
+    a.box(torso, [0.048, 0.37, 0.028], p.webbing, [side * 0.13, 0.33, -0.17], [0, 0, side * -0.07]);
+    a.box(torso, [0.052, 0.048, 0.28], p.webbing, [side * 0.13, 0.484, 0]);
     a.box(torso, [0.094, 0.143, 0.065], p.darkCloth, [side * 0.067, 0.211, -0.195]);
     a.box(torso, [0.092, 0.023, 0.071], p.webbing, [side * 0.067, 0.268, -0.2]);
     a.box(hips, [0.086, 0.15, 0.11], p.webbing, [side * 0.207, -0.06, 0.025]);
   }
-  for (let row = 0; row < 3; row++) a.box(torso, [0.26, 0.012, 0.008], p.tan, [0, 0.32 + row * 0.031, -0.19]);
-  a.box(torso, [0.087, 0.046, 0.008], p.rubber, [0, 0.429, -0.183]);
-  a.box(torso, [0.066, 0.009, 0.009], p.tan, [0, 0.429, -0.189]);
+  for (let row = 0; row < 3; row++) a.box(torso, [0.22, 0.009, 0.008], p.tan, [0, 0.316 + row * 0.03, -0.195]);
+  a.box(torso, [0.087, 0.046, 0.01], p.rubber, [0, 0.428, -0.187]);
+  a.box(torso, [0.066, 0.009, 0.012], p.tan, [0, 0.428, -0.193]);
+  a.box(torso, [0.047, 0.071, 0.036], p.rubber, [-0.157, 0.385, -0.145]);
+  a.box(torso, [0.029, 0.034, 0.012], p.steel, [-0.157, 0.382, -0.167]);
+  a.box(torso, [0.008, 0.032, 0.008], p.red, [-0.157, 0.382, -0.176]);
   const pack = group(torso, 'backpack', [0, 0.29, 0.24]);
   a.box(pack, [0.31, 0.36, 0.20], p.darkCloth);
   a.box(pack, [0.27, 0.075, 0.215], p.cloth, [0, 0.178, 0]);
@@ -365,34 +376,50 @@ export function createSoldier({ color = 0x647466, player = false } = {}) {
   a.bar(pack, [0.18, 0.12, 0], [0.19, 0.47, 0.015], 0.005, p.metal);
   a.cylinder(torso, 0.059, 0.067, 0.105, p.skin, [0, 0.548, 0]);
   const head = group(torso, 'head', [0, 0.665, -0.005]);
-  a.sphere(head, 0.112, p.skin, [0, 0, 0], [0.86, 1.08, 0.95]);
-  a.box(head, [0.115, 0.047, 0.07], p.darkCloth, [0, -0.055, -0.068]);
-  a.box(head, [0.028, 0.035, 0.034], p.skin, [0, -0.007, -0.105]);
-  a.box(head, [0.165, 0.045, 0.035], p.rubber, [0, 0.025, -0.084]);
-  for (const x of [-0.042, 0.042]) a.box(head, [0.065, 0.028, 0.014], p.glass, [x, 0.025, -0.108]);
+  a.sphere(head, 0.112, p.skin, [0, 0, 0], [0.84, 1.08, 0.9]);
+  a.box(head, [0.09, 0.035, 0.048], p.darkCloth, [0, -0.061, -0.064]);
+  a.box(head, [0.022, 0.035, 0.035], p.skin, [0, -0.006, -0.095]);
+  a.box(head, [0.048, 0.02, 0.014], p.skin, [0, -0.041, -0.101]);
+  a.box(head, [0.172, 0.042, 0.037], p.rubber, [0, 0.023, -0.079]);
+  for (const x of [-0.043, 0.043]) {
+    a.box(head, [0.067, 0.028, 0.016], p.glass, [x, 0.023, -0.101]);
+    a.box(head, [0.074, 0.012, 0.021], p.armor, [x, 0.043, -0.098]);
+    a.box(head, [0.027, 0.034, 0.01], p.skin, [x * 2.1, -0.024, -0.073]);
+  }
   const helmetGeo = a.geometry('helmet-dome', () => new THREE.SphereGeometry(0.136, 12, 6, 0, TAU, 0, Math.PI * 0.57));
   a.mesh(head, helmetGeo, p.cloth, [0, 0.049, 0.007]).scale.z = 1.04;
-  a.box(head, [0.219, 0.022, 0.081], p.armor, [0, 0.036, -0.09]);
-  a.box(head, [0.035, 0.058, 0.018], p.metal, [0, 0.09, -0.119]);
+  a.box(head, [0.223, 0.021, 0.075], p.armor, [0, 0.036, -0.081]);
+  a.box(head, [0.035, 0.057, 0.022], p.metal, [0, 0.091, -0.112]);
+  a.box(head, [0.102, 0.018, 0.095], p.webbing, [0, 0.112, 0.035]);
+  a.box(head, [0.031, 0.056, 0.025], p.rubber, [0, 0.095, -0.135]);
   for (const side of [-1, 1]) {
     a.box(head, [0.018, 0.10, 0.021], p.webbing, [side * 0.092, -0.032, 0.012], [0.21, 0, side * -0.18]);
-    a.box(head, [0.036, 0.066, 0.073], p.rubber, [side * 0.113, -0.014, 0.003]);
-    a.box(head, [0.008, 0.036, 0.081], p.webbing, [side * 0.133, 0.068, 0]);
+    a.cylinder(head, 0.036, 0.036, 0.068, p.rubber, [side * 0.105, -0.018, 0.004], [0, 0, Math.PI / 2], 8);
+    a.box(head, [0.012, 0.034, 0.071], p.webbing, [side * 0.135, 0.068, 0]);
+    a.box(head, [0.012, 0.019, 0.044], p.metal, [side * 0.141, 0.072, 0.003]);
   }
   a.bar(head, [-0.119, -0.029, -0.013], [-0.057, -0.06, -0.12], 0.005, p.metal);
   const legs = [-1, 1].map(side => {
     const thigh = group(hips, side < 0 ? 'left-thigh' : 'right-thigh', [side * 0.102, 0, 0]);
-    a.cylinder(thigh, 0.096, 0.075, 0.36, p.cloth, [0, -0.19, 0], undefined, 8);
-    a.box(thigh, [0.079, 0.14, 0.079], p.darkCloth, [side * 0.072, -0.18, 0.006]);
+    a.cylinder(thigh, 0.092, 0.073, 0.36, p.cloth, [0, -0.19, 0], undefined, 10);
+    a.box(thigh, [0.067, 0.13, 0.069], p.darkCloth, [side * 0.066, -0.18, 0.006]);
+    a.box(thigh, [0.088, 0.099, 0.045], p.webbing, [side * 0.045, -0.105, -0.066]);
+    a.box(thigh, [0.074, 0.075, 0.017], p.cloth, [side * 0.045, -0.105, -0.091]);
+    a.box(thigh, [0.042, 0.018, 0.01], p.rubber, [side * 0.045, -0.105, -0.103]);
     const shin = group(thigh, 'shin', [0, -0.4, 0]);
-    a.cylinder(shin, 0.073, 0.056, 0.35, p.cloth, [0, -0.175, 0], undefined, 8);
-    a.box(shin, [0.111, 0.121, 0.042], p.armor, [0, -0.025, -0.068], [0.08, 0, 0]);
+    a.cylinder(shin, 0.07, 0.054, 0.35, p.cloth, [0, -0.175, 0], undefined, 10);
+    a.box(shin, [0.106, 0.116, 0.042], p.armor, [0, -0.025, -0.068], [0.08, 0, 0]);
+    a.box(shin, [0.074, 0.043, 0.012], p.rubber, [0, 0.027, -0.093]);
+    for (const side of [-1, 1]) a.box(shin, [0.014, 0.063, 0.014], p.webbing, [side * 0.046, -0.026, -0.092]);
     a.box(shin, [0.129, 0.026, 0.115], p.webbing, [0, -0.048, 0]);
     const boot = group(shin, 'boot', [0, -0.4, 0]);
     a.box(boot, [0.137, 0.12, 0.175], p.rubber, [0, 0.02, 0.014]);
     a.box(boot, [0.142, 0.084, 0.26], p.rubber, [0, -0.052, -0.054]);
-    a.box(boot, [0.148, 0.018, 0.271], p.armor, [0, -0.091, -0.054]);
-    if (player) for (let i = 0; i < 3; i++) a.box(boot, [0.075, 0.007, 0.012], p.webbing, [0, 0.002, -0.10 + i * 0.025]);
+    a.box(boot, [0.148, 0.022, 0.271], p.armor, [0, -0.09, -0.054]);
+    for (let i = 0; i < 4; i++) {
+      const z = -0.104 + i * 0.028;
+      a.bar(boot, [-0.035, 0.061 - i * 0.012, z], [0.035, 0.049 - i * 0.012, z - 0.012], 0.0035, p.webbing, 4);
+    }
     return { thigh, shin, boot };
   });
   const down = new THREE.Vector3(0, -1, 0);
