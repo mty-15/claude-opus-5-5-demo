@@ -2,9 +2,9 @@ import { rayBoxDistance } from './rules.js';
 
 export const PLAYER_RADIUS = 0.36;
 export const WORLD_LIMIT = 670;
+export const STEP_HEIGHT = 0.65;
 const PLAYER_HEIGHT = 1.75;
 const CELL = 24;
-const STEP_HEIGHT = 0.65;
 const MOVE_STEP = 0.25;
 const CONTACT_EPSILON = 1e-7;
 const TERRAIN_RAY_STEP = 1;

@@ -5,7 +5,7 @@ import { AudioEngine } from './audio.js';
 import { HUD } from './hud.js';
 import { Input } from './input.js';
 import { TouchLayout } from './touch-layout.js';
-import { CollisionWorld, raySphereDistance } from './physics.js';
+import { CollisionWorld, raySphereDistance, STEP_HEIGHT } from './physics.js';
 import { WEAPONS, createInventory, addLoot, reloadWeapon, consumeRound, applyDamage, createZone, advanceZone, zoneSnapshot, isOutsideZone, mulberry32 } from './rules.js';
 
 const PARTICIPANTS = 48;
@@ -13,6 +13,11 @@ const EYE_HEIGHT = 1.63;
 // 移动手感参数。地面加速 34 m/s² 让步行全速（5.4 m/s）在约 0.16 s 内达到，
 // 阻尼 8 m/s² 让松手后约 0.5 s 滑停——既有提速感，又不会松手立刻站住。
 const GROUND_ACCEL = 34, GROUND_DAMP = 8, AIR_ACCEL = 6;
+// 坡度速度：只对自然地形生效（建筑地板/桥面不算），沿移动方向采样前方地形高度。
+// 上坡按坡度折减、下坡小幅增益，让山地与平地跑速有区分，但不会陡到走不动。
+const SLOPE_PROBE = .6;            // 采样距离（米）
+const SLOPE_UP_MAX = .55;          // 陡坡最多降速 55%
+const SLOPE_DOWN_GAIN = .18;       // 下坡最多提速 18%
 const BOT_COMBAT_DISTANCE = 200;
 const ACTOR_DRAW_DISTANCE = BOT_COMBAT_DISTANCE + 40;
 const BOT_NAMES = ['荒野回声','山海过客','北境来信','伏击手','无声信号','第七小队','落日巡游','一叶知秋','夜航船','逆风行者','海岸守望','山谷猎手','灰狼','追光者','北斗','未眠','寒鸦','归途','轻舟','旧港','鹿鸣','穿林风','南山','逐浪'];
@@ -449,6 +454,32 @@ export class Game {
     if(crouch||prone) this.input.unlockSprint();
     p.crouch=crouch;p.prone=prone;this.action=null;
   }
+  /**
+   * 坡地速度系数：沿移动方向前后采样地形高度，按坡度角折减/增益期望速度。
+   * 只对自然地形生效——站在建筑地板或桥面上时，脚下地面来自碰撞盒（floorAt ≠ 地形），
+   * 直接跳过，避免在楼顶、桥面被真实地形高度误判成陡坡。
+   */
+  slopeFactor(p,move) {
+    const speed=Math.hypot(move.x,move.y);
+    if(speed<.01) return 1;
+    // 玩家脚下地板若明显高于地形，说明站在建筑/桥面上，不参与坡度计算。
+    const terrain=this.world.heightAt(p.x,p.z);
+    const floor=this.collision.floorAt(p.x,p.z,p.y+.05);
+    if(floor-terrain>.6) return 1;
+    // 移动方向在世界坐标中的单位向量（yaw 绕 Y 轴：前 = (-sin,-cos)，右 = (cos,-sin)）。
+    const wx=(Math.cos(p.yaw)*move.x-Math.sin(p.yaw)*move.y)/speed;
+    const wz=(-Math.sin(p.yaw)*move.x-Math.cos(p.yaw)*move.y)/speed;
+    const ahead=this.world.heightAt(p.x+wx*SLOPE_PROBE,p.z+wz*SLOPE_PROBE);
+    const rise=ahead-terrain;
+    // 前方抬升超过可跨越台阶高度，说明是墙或断崖而不是坡：玩家本来就会被挡下，
+    // 套坡度减速只会让贴崖横走变得莫名迟钝，直接跳过。
+    if(rise>STEP_HEIGHT) return 1;
+    // 坡度近似正弦（rise / 采样距离）：上坡平滑降速、下坡小幅增益。
+    // grade^1.5 让缓坡几乎无感、陡坡才明显掉速，避免 20%~50% 坡之间断崖。
+    const grade=rise/SLOPE_PROBE;
+    if(grade>0) return 1-Math.min(SLOPE_UP_MAX,Math.pow(grade,1.5)*.85);
+    return 1+Math.min(SLOPE_DOWN_GAIN,Math.pow(-grade,1.3)*.2);
+  }
   /** 把键盘方向键与摇杆位移合成一个长度不超过 1 的移动向量（y 前为正，x 右为正）。 */
   mergeMove(held, stick) {
     const forward=Number(held.has('forward'))-Number(held.has('back'));
@@ -471,7 +502,7 @@ export class Game {
     // 原先直接按 maxSpeed*dt 位移，再叠上摇杆幅度线性缩放，手机上实测只有 1~2 m/s，
     // 这是「移动非常慢」的根因。参数借鉴 cf-transport-ship/src/actor.js（RUN=5.7、加速度 11、阻尼 9），
     // 但把加速度改成绝对值 m/s²（cf 的 11*dt*wishSpeed 在高速时会瞬间到位，几乎感觉不到提速）。
-    const wishSpeed=maxSpeed*analogue*(this.boost>50?1.06:1);
+    const wishSpeed=maxSpeed*analogue*(this.boost>50?1.06:1)*this.slopeFactor(p,move);
     const horizontal=Math.hypot(forward,side);
     const wishX=horizontal>0?forward/horizontal:0, wishZ=horizontal>0?side/horizontal:0;
     p.velX=p.velX||0;p.velZ=p.velZ||0;
