@@ -255,6 +255,9 @@ export class HUD {
     // 手机没有 V 键，切视角改为可点按钮；触屏上按键提示（M/V/Esc）也没意义，用 body.is-touch 隐藏。
     this._hidden('touch-view', !state.touch);
     document.body.classList.toggle('is-touch', !!state.touch);
+    // 锁定奔跑：摇杆换成高亮态，屏幕提示「奔跑锁定 · 点摇杆解除」。
+    document.body.classList.toggle('sprint-locked', !!state.sprintLocked);
+    this._hidden('sprint-lock-note', !state.sprintLocked);
     const now = performance.now();
     if (now - this.lastTelemetry >= 200) {
       this.lastTelemetry = now;

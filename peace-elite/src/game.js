@@ -292,6 +292,10 @@ export class Game {
       const frameTime=Math.max(0,(now-this.lastFrame)/1000);
       const dt=Math.min(.05,frameTime);this.lastFrame=now;this.elapsed+=dt;
       this.fps=damp(this.fps,1/Math.max(.001,frameTime),2,dt);
+      // 冲刺锁定只在地面步行时有效：上车或空中会自动解除，落地后可重新锁定。
+      this.input.sprintLockGate=!!this.player&&this.player.phase==='ground'&&!this.vehicle;
+      // 推进摇杆的锁定计时：手指停住不动时没有 pointermove，计时只能靠帧驱动。
+      this.input.tick(dt);
       const controls=this.input.sample();
       if(this.screen==='playing') {
         this.commands(controls);
@@ -441,6 +445,8 @@ export class Game {
     const p=this.player,crouch=posture==='crouch'&&!p.crouch,prone=posture==='prone'&&!p.prone;
     const height=prone?.55:crouch?1.2:1.75;
     if(this.collision.blocked(p.x,p.y+.01,p.z,.36,height)){this.hud.toast('上方空间不足，无法起身','warning');return;}
+    // 蹲/趴会打断锁定奔跑：拿着伞跑的人点一下蹲，预期是停下来而不是继续冲。
+    if(crouch||prone) this.input.unlockSprint();
     p.crouch=crouch;p.prone=prone;this.action=null;
   }
   /** 把键盘方向键与摇杆位移合成一个长度不超过 1 的移动向量（y 前为正，x 右为正）。 */
@@ -986,6 +992,8 @@ export class Game {
       action:this.action?{label:this.action.label,progress:1-this.action.remaining/this.action.total}:null,
       airTime:p.phase==='plane'?Math.max(0,24-this.planeTime):Math.max(0,p.y-this.world.heightAt(p.x,p.z)),vehicle:!!this.vehicle,fps:Math.round(this.fps),time:this.time,
       chute:!!p.chute,touch:this.touchMode,
+      // 锁定奔跑（摇杆推到外圈停住）：HUD 上给一个常亮的「奔跑锁定」提示。
+      sprintLocked:!!this.input.locked&&p.phase==='ground'&&!this.vehicle,
       // 空中阶段收起战斗键，把屏幕让给跳伞/开伞按钮。
       airborne:p.phase==='plane'||p.phase==='parachute',
       fireMode:weapon?(weapon.automatic&&this.fireModeAuto?'自动':'单发'):'近战',aim:this.aim});

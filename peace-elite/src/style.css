@@ -65,6 +65,13 @@ body.portrait .rotate-hint{display:flex}
 .touch-layout-actions button[data-layout-action=save]{border-color:#e6bd6070;color:var(--bright)}
 .touch-layout-message{margin-top:9px;min-height:14px;font-size:10px;color:var(--gold)}
 .touch-controls :is(button,.touch-stick).is-layout-selected{outline:2px solid var(--bright);outline-offset:2px}
+/* 锁定奔跑：摇杆常亮 + 一个不拦触点的提示条（挂在摇杆内部，自动跟随摇杆的自定义布局位置与缩放）。 */
+.touch-stick.is-locked{border-color:var(--bright);background:radial-gradient(circle,#e6bd6033,#0d140b66);box-shadow:0 2px 14px #0006,inset 0 0 22px #0000004d,0 0 20px #e6bd6066;animation:sprintLockPulse 1.8s ease-in-out infinite}
+.touch-stick.is-locked .touch-stick-knob{border-color:var(--bright);background:radial-gradient(circle at 35% 30%,#f0d38be6,#b8892ee6);box-shadow:0 0 18px #e6bd6099}
+@keyframes sprintLockPulse{0%,100%{box-shadow:0 2px 14px #0006,inset 0 0 22px #0000004d,0 0 16px #e6bd604d}50%{box-shadow:0 2px 14px #0006,inset 0 0 22px #0000004d,0 0 26px #e6bd6099}}
+.sprint-lock-note{position:absolute;bottom:calc(100% + 10px);left:50%;transform:translateX(-50%);padding:4px 6px;border-radius:11px;border:1px solid #e6bd6073;background:#181e12cc;color:var(--bright);font-size:10px;letter-spacing:.5px;white-space:nowrap;pointer-events:none;text-shadow:0 1px 3px #0008}
+.sprint-lock-note[hidden]{display:none}
+@media(prefers-reduced-motion:reduce){.touch-stick.is-locked{animation:none}}
 
 /* ---------- 跳伞 / 开伞按钮（手机没有空格键） ---------- */
 /* 参考和平精英：离机与开伞各有一个专属的醒目按钮，放在右手拇指自然落点。
