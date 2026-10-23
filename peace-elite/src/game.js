@@ -44,7 +44,9 @@ export class Game {
     this.canvas=document.getElementById('game-canvas');
     this.input=new Input(this.canvas,{onPause:()=>this.pause(),onError:message=>this.hud.toast(message,'warning')});
     // 手机端为横屏射击：竖屏时提示旋转并暂停对局，遮罩由 body.portrait 驱动。
-    this.touchMode=matchMedia('(pointer: coarse)').matches||new URLSearchParams(location.search).has('touch');
+    // 判定用 coarse pointer 或「有触点」双保险：部分安卓 WebView / 接管了鼠标的平板
+    // 会报 fine pointer，只靠 coarse 会误判成桌面端，导致手机上出现 F / 空格 / WASD 文案。
+    this.touchMode=matchMedia('(pointer: coarse)').matches||(navigator.maxTouchPoints||0)>0||new URLSearchParams(location.search).has('touch');
     this.portrait=matchMedia('(orientation: portrait)');
     this.hud.setScreen('loading');
     this.resize=this.resize.bind(this);

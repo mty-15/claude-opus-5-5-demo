@@ -22,7 +22,7 @@ export class Input {
     this.canvas = canvas;
     this.onPause = onPause;
     this.onError = onError;
-    this.touch = matchMedia('(pointer: coarse)').matches;
+    this.touch = matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints||0) > 0;
     this.active = false;
     this.layoutEditing = false;
     this.keys = new Map();
