@@ -10,14 +10,14 @@ import { WEAPONS, createInventory, addLoot, reloadWeapon, consumeRound, applyDam
 
 const PARTICIPANTS = 48;
 const EYE_HEIGHT = 1.63;
-// 移动手感参数。地面加速 34 m/s² 让步行全速（5.4 m/s）在约 0.16 s 内达到，
-// 阻尼 8 m/s² 让松手后约 0.5 s 滑停——既有提速感，又不会松手立刻站住。
-const GROUND_ACCEL = 34, GROUND_DAMP = 8, AIR_ACCEL = 6;
-// 坡度速度：只对自然地形生效（建筑地板/桥面不算），沿移动方向采样前方地形高度。
-// 上坡按坡度折减、下坡小幅增益，让山地与平地跑速有区分，但不会陡到走不动。
-const SLOPE_PROBE = .6;            // 采样距离（米）
-const SLOPE_UP_MAX = .55;          // 陡坡最多降速 55%
-const SLOPE_DOWN_GAIN = .18;       // 下坡最多提速 18%
+// 地面速度向目标向量收敛，兼顾换向、起步和刹停；冲刺松手约 0.27s 停稳。
+const GROUND_ACCEL = 18, GROUND_DAMP = 22, AIR_ACCEL = 6;
+const RUN_SPEED = 4.4, SPRINT_SPEED = 6;
+// 提示与手动拾取共用距离/高度范围，避免显示「拾取」却够不到。
+const PICKUP_RADIUS = 3.1, PICKUP_HEIGHT = 2.5;
+// 沿移动方向采样可行走地形：只做上坡减速，不额外叠加下坡加速。
+const SLOPE_PROBE = .6;
+const SLOPE_UP_MAX = .55;
 const BOT_COMBAT_DISTANCE = 200;
 const ACTOR_DRAW_DISTANCE = BOT_COMBAT_DISTANCE + 40;
 const BOT_NAMES = ['荒野回声','山海过客','北境来信','伏击手','无声信号','第七小队','落日巡游','一叶知秋','夜航船','逆风行者','海岸守望','山谷猎手','灰狼','追光者','北斗','未眠','寒鸦','归途','轻舟','旧港','鹿鸣','穿林风','南山','逐浪'];
@@ -300,7 +300,7 @@ export class Game {
       const dt=Math.min(.05,frameTime);this.lastFrame=now;this.elapsed+=dt;
       this.fps=damp(this.fps,1/Math.max(.001,frameTime),2,dt);
       // 冲刺锁定只在地面步行时有效：上车或空中会自动解除，落地后可重新锁定。
-      this.input.sprintLockGate=!!this.player&&this.player.phase==='ground'&&!this.vehicle;
+      this.input.sprintLockGate=this.screen==='playing'&&!!this.player&&this.player.phase==='ground'&&!this.vehicle&&!this.player.crouch&&!this.player.prone;
       // 推进摇杆的锁定计时：手指停住不动时没有 pointermove，计时只能靠帧驱动。
       this.input.tick(dt);
       const controls=this.input.sample();
@@ -341,7 +341,7 @@ export class Game {
     if(pressed.has('heal')) this.beginHeal(false);
     if(pressed.has('boost')) this.beginHeal(true);
     if(pressed.has('grenade')) this.throwGrenade();
-    if(pressed.has('interact')||pressed.has('vehicle')) this.interact();
+    if(pressed.has('interact')||pressed.has('vehicle')) {this.interact();controls.move=this.input.move;}
     if(pressed.has('jump')&&!this.vehicle&&!p.prone&&p.y<=this.collision.floorAt(p.x,p.z,p.y+.08)+.08&&!this.collision.blocked(p.x,p.y+.01,p.z,.36,1.75)) {p.vy=5.2;p.crouch=false;this.action=null;}
     this.firePressed=pressed.has('fire');
   }
@@ -456,31 +456,19 @@ export class Game {
     if(crouch||prone) this.input.unlockSprint();
     p.crouch=crouch;p.prone=prone;this.action=null;
   }
-  /**
-   * 坡地速度系数：沿移动方向前后采样地形高度，按坡度角折减/增益期望速度。
-   * 只对自然地形生效——站在建筑地板或桥面上时，脚下地面来自碰撞盒（floorAt ≠ 地形），
-   * 直接跳过，避免在楼顶、桥面被真实地形高度误判成陡坡。
-   */
+  /** 沿移动方向采样可行走地形的坡度；跳跃和高于地形的建筑地板不参与。 */
   slopeFactor(p,move) {
     const speed=Math.hypot(move.x,move.y);
-    if(speed<.01) return 1;
-    // 玩家脚下地板若明显高于地形，说明站在建筑/桥面上，不参与坡度计算。
+    if(speed<.01||p.vy!==0) return 1;
     const terrain=this.world.heightAt(p.x,p.z);
     const floor=this.collision.floorAt(p.x,p.z,p.y+.05);
-    if(floor-terrain>.6) return 1;
-    // 移动方向在世界坐标中的单位向量（yaw 绕 Y 轴：前 = (-sin,-cos)，右 = (cos,-sin)）。
+    if(floor-terrain>.6||Math.abs(p.y-floor)>.05) return 1;
     const wx=(Math.cos(p.yaw)*move.x-Math.sin(p.yaw)*move.y)/speed;
     const wz=(-Math.sin(p.yaw)*move.x-Math.cos(p.yaw)*move.y)/speed;
     const ahead=this.world.heightAt(p.x+wx*SLOPE_PROBE,p.z+wz*SLOPE_PROBE);
-    const rise=ahead-terrain;
-    // 前方抬升超过可跨越台阶高度，说明是墙或断崖而不是坡：玩家本来就会被挡下，
-    // 套坡度减速只会让贴崖横走变得莫名迟钝，直接跳过。
-    if(rise>STEP_HEIGHT) return 1;
-    // 坡度近似正弦（rise / 采样距离）：上坡平滑降速、下坡小幅增益。
-    // grade^1.5 让缓坡几乎无感、陡坡才明显掉速，避免 20%~50% 坡之间断崖。
-    const grade=rise/SLOPE_PROBE;
-    if(grade>0) return 1-Math.min(SLOPE_UP_MAX,Math.pow(grade,1.5)*.85);
-    return 1+Math.min(SLOPE_DOWN_GAIN,Math.pow(-grade,1.3)*.2);
+    // grade 为高差/水平距离（坡度），缓坡影响小，陡坡有降速下限。
+    const grade=Math.max(0,(ahead-terrain)/SLOPE_PROBE);
+    return 1-Math.min(SLOPE_UP_MAX,Math.pow(grade,1.5)*.85);
   }
   /** 把键盘方向键与摇杆位移合成一个长度不超过 1 的移动向量（y 前为正，x 右为正）。 */
   mergeMove(held, stick) {
@@ -497,35 +485,20 @@ export class Game {
     let forward=move.y,side=move.x;
     const length=Math.hypot(forward,side);if(length>1){forward/=length;side/=length;}
     const sprint=held.has('sprint')&&!this.aim&&!p.crouch&&!p.prone;
-    const maxSpeed=p.prone?1.6:p.crouch?2.8:held.has('walk')?2.5:this.aim?3.4:sprint?7.5:5.4;
-    // 摇杆推杆幅度决定速度：轻推慢走、推满全速，键盘保持原速。
+    const maxSpeed=p.prone?1.6:p.crouch?2.8:held.has('walk')?2.5:this.aim?3.4:sprint?SPRINT_SPEED:RUN_SPEED;
     const analogue=Math.min(1,Math.hypot(forward,side));
-    // 加速度模型：起步有提速感、松手有短暂滑行，不再是「松手即停」的瞬移。
-    // 原先直接按 maxSpeed*dt 位移，再叠上摇杆幅度线性缩放，手机上实测只有 1~2 m/s，
-    // 这是「移动非常慢」的根因。参数借鉴 cf-transport-ship/src/actor.js（RUN=5.7、加速度 11、阻尼 9），
-    // 但把加速度改成绝对值 m/s²（cf 的 11*dt*wishSpeed 在高速时会瞬间到位，几乎感觉不到提速）。
     const wishSpeed=maxSpeed*analogue*(this.boost>50?1.06:1)*this.slopeFactor(p,move);
     const horizontal=Math.hypot(forward,side);
     const wishX=horizontal>0?forward/horizontal:0, wishZ=horizontal>0?side/horizontal:0;
     p.velX=p.velX||0;p.velZ=p.velZ||0;
     const grounded=p.vy===0;
     if(grounded){
-      // 加速朝 wishSpeed 逼近，但不越过它；没有输入时按阻尼滑行到 0。
-      if(horizontal>0){
-        const speed=Math.hypot(p.velX,p.velZ);
-        if(speed<wishSpeed){
-          const acc=Math.min(GROUND_ACCEL*dt,wishSpeed-speed);
-          p.velX+=wishX*acc;p.velZ+=wishZ*acc;
-        } else if(speed-wishSpeed>GROUND_DAMP*dt){
-          // 只有明显超出期望速度（例如冲刺降成步行）才用阻尼收敛；
-          // 留出一帧阻尼步长的死区，否则加速与阻尼会在稳态上限附近来回抖动。
-          const keep=Math.max(0,speed-GROUND_DAMP*dt)/speed;
-          p.velX*=keep;p.velZ*=keep;
-        }
-      } else {
-        const speed=Math.hypot(p.velX,p.velZ);
-        if(speed>0){const keep=Math.max(0,speed-GROUND_DAMP*dt)/speed;p.velX*=keep;p.velZ*=keep;}
-      }
+      // 朝目标「速度向量」逼近，而不是只比较速率；满速后转弯、倒退也必须更新方向。
+      const deltaX=wishX*wishSpeed-p.velX,deltaZ=wishZ*wishSpeed-p.velZ;
+      const delta=Math.hypot(deltaX,deltaZ);
+      const braking=horizontal===0||Math.hypot(p.velX,p.velZ)>wishSpeed;
+      const limit=(braking?GROUND_DAMP:GROUND_ACCEL)*dt;
+      if(delta>0){const ratio=Math.min(1,limit/delta);p.velX+=deltaX*ratio;p.velZ+=deltaZ*ratio;}
     } else if(horizontal>0){
       // 空中控制很弱，只允许小幅修正，避免跳跃时像地面一样灵活。
       const speed=Math.hypot(p.velX,p.velZ);
@@ -544,8 +517,8 @@ export class Game {
       if(Math.hypot(movedX,movedZ)<Math.hypot(dx,dz)*.35){p.velX*=.2;p.velZ*=.2;}
     } else p.speed=0;
     p.x=next.x;p.z=next.z;
-    const floor=this.collision.floorAt(p.x,p.z,p.y+.65);
-    if(wasGrounded&&floor>p.y&&floor-p.y<=.65) p.y=floor;
+    const floor=this.collision.floorAt(p.x,p.z,p.y+STEP_HEIGHT);
+    if(wasGrounded&&floor>p.y&&floor-p.y<=STEP_HEIGHT) p.y=floor;
     p.vy-=18*dt;
     const vertical=this.collision.vertical(p,p.vy,dt,p.prone?.55:p.crouch?1.2:1.75);
     p.y=vertical.y;p.vy=vertical.vy;
@@ -584,27 +557,22 @@ export class Game {
     if(action.type==='boost') {p.inventory={...p.inventory,boosts:p.inventory.boosts-1};this.boost=100;this.audio.pickup();}
   }
 
-  nearestLoot(actor,limit=3.1) {
+  lootInRange(actor,loot,limit=PICKUP_RADIUS) {
+    return loot.active&&dist(actor,loot)<limit&&Math.abs(actor.y-loot.y)<PICKUP_HEIGHT;
+  }
+  nearestLoot(actor,limit=PICKUP_RADIUS) {
     let best=null,bestDistance=limit;
     for(const loot of this.loot) {
-      if(!loot.active) continue;
+      if(!this.lootInRange(actor,loot,limit)) continue;
       const d=dist(actor,loot);
-      if(d>=bestDistance||Math.abs(actor.y-loot.y)>2.5) continue;
-      // 房区里物品常被家具或箱子挡住，要求视线会让站在旁边却拾取不到；手动拾取同样不该要求视线。
-      best=loot;bestDistance=d;
+      if(d<bestDistance){best=loot;bestDistance=d;}
     }
     return best;
   }
   /** 收集交互范围内的所有物品（按距离从近到远）。 */
-  nearbyLoot(actor,limit=2.6) {
-    const found=[];
-    for(const loot of this.loot) {
-      if(!loot.active) continue;
-      const d=dist(actor,loot);
-      if(d<limit&&Math.abs(actor.y-loot.y)<2.5) found.push({loot,d});
-    }
-    found.sort((a,b)=>a.d-b.d);
-    return found.map(entry=>entry.loot);
+  nearbyLoot(actor,limit=PICKUP_RADIUS) {
+    return this.loot.filter(loot=>this.lootInRange(actor,loot,limit))
+      .sort((a,b)=>dist(actor,a)-dist(actor,b));
   }
   /** 交互拾取：范围内逐个收，直到背包装不下为止。仍然需要玩家主动按「互动」。 */
   pickupNearby(actor) {
@@ -617,11 +585,16 @@ export class Game {
   }
   interact() {
     const p=this.player;if(p.phase!=='ground') return;
+    // 搜装时取消自动奔跑并清掉惯性，避免点击后继续冲出拾取范围。
+    const autoRunning=this.input.locked;
+    this.input.unlockSprint();
+    if(autoRunning){p.velX=0;p.velZ=0;}
     if(this.vehicle) {this.exitVehicle();return;}
-    // 一次交互收完附近所有能装的物品：房区里装备成片散落，挨个点太碎。
-    if(this.pickupNearby(p)) return;
+    // 有物品却装不下时保留 pickup() 的原因提示，不意外转为上车操作。
+    if(this.nearestLoot(p)){this.pickupNearby(p);return;}
     const vehicle=this.vehicles.find(v=>dist(v,p)<4.5);
     if(vehicle) {this.vehicle=vehicle;this.action=null;p.prone=false;p.crouch=false;this.hud.toast(this.touchMode?'摇杆控制油门与转向 · 『互动』下车':'W/S 油门与倒车 · A/D 转向 · 空格刹车 · F 下车');document.body.classList.add('in-vehicle');}
+    else this.hud.toast('附近没有可拾取物品，请再靠近一点');
   }
   pickup(actor,loot) {
     const result=addLoot(actor.inventory,loot.item);

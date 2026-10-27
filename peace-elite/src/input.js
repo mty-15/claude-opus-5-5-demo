@@ -11,11 +11,11 @@ const TOUCH_HELD = new Set(['fire','leanLeft','leanRight']);
 // 速度会卡在 60%~80%。同时 STICK_DEADZONE 降到 0.10，减少「推了没反应」的空走段。
 const STICK_DEADZONE = .10;
 const STICK_TRAVEL = .44;
-// 锁定奔跑（参考和平精英的「持续冲刺」）：把摇杆推到外圈冲刺区并停住一小会儿就自动锁上，
-// 拇指可以松开，角色继续朝该方向奔跑；再点一下摇杆解除。
-const SPRINT_RING = .82;      // 进入冲刺区的行程比例
-const LOCK_HOLD = .25;        // 在冲刺区停留多久后锁定（秒）
-const LOCK_DIRECTION_SLOP = .28; // 停留期间方向可漂移的角度（弧度），抖动超过则重新计时
+// 普通圆盘内推杆只移动。向上推过正常行程并保持，才进入持续冲刺。
+const SPRINT_RING = 1.15;
+const LOCK_HOLD = .6;
+const LOCK_FORWARD = .85;
+const LOCK_DIRECTION_SLOP = .28;
 
 export class Input {
   constructor(canvas, { onPause, onError }) {
@@ -37,6 +37,7 @@ export class Input {
     // 锁定奔跑状态：lockTimer 累计「在冲刺区停留」的时间，locked 表示已锁定，
     // lockedMove 保存锁定时的方向，松手后 this.move 保持它。
     this.lockTimer = 0;
+    this.lockBlocked = false;
     this.lockAngle = 0;
     this.stickAngle = 0;
     this.locked = false;
@@ -136,6 +137,7 @@ export class Input {
     this.stickCentre = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, travel: rect.width * STICK_TRAVEL };
     this.stickRoot.classList.add('is-active');
     this.lockTimer = 0;
+    this.lockBlocked = false;
     // 锁定状态下点一下摇杆就是解除：这次按下不再驱动方向，避免角色被拖动。
     if (this.locked) {
       this.unlockSprint();
@@ -148,34 +150,33 @@ export class Input {
   updateStick(clientX, clientY) {
     const centre = this.stickCentre;
     if (!centre) return;
-    let dx = clientX - centre.x, dy = clientY - centre.y;
-    const length = Math.hypot(dx, dy);
-    if (length > centre.travel) { dx *= centre.travel / length; dy *= centre.travel / length; }
-    const knob = this.stickRoot.querySelector('.touch-stick-knob');
-    if (knob) knob.style.transform = `translate(${dx}px,${dy}px)`;
-    // 死区内视为静止，避免手指微抖导致角色缓慢漂移。
-    // 死区外线性映射到 0..1（与 cf-transport-ship 的 dx/travel 一致）：不做 (raw-deadzone)/(1-deadzone)
-    // 的重新归一化，否则轻推的增益会被放大，推杆前段立刻满速、失去「轻推慢走」的层次。
-    const raw = length ? Math.min(1, length / centre.travel) : 0;
-    const scaled = raw <= STICK_DEADZONE ? 0 : raw;
-    const unit = length ? 1 / length : 0;
-    this.move = { x: dx * unit * scaled, y: -dy * unit * scaled };
-    // 推过死区说明这是真的在操作摇杆，撤销「点一下解除」的保护，恢复跟手。
-    if (raw > STICK_DEADZONE) this.stickTapToUnlock = false;
-    this.stickAngle = Math.atan2(dy, dx);
-    this.trackSprintHold(raw, this.stickAngle);
+    const dx=clientX-centre.x,dy=clientY-centre.y,length=Math.hypot(dx,dy);
+    const raw=length/centre.travel;
+    const scaled=raw<=STICK_DEADZONE?0:Math.min(1,raw);
+    const unit=length?1/length:0;
+    const knob=this.stickRoot.querySelector('.touch-stick-knob');
+    if(knob) knob.style.transform=`translate(${dx*unit*Math.min(length,centre.travel)}px,${dy*unit*Math.min(length,centre.travel)}px)`;
+    this.stickAngle=Math.atan2(dy,dx);
+    // 回拉/横移退出锁定，让玩家能在物品附近重新小幅定位。
+    if(this.locked&&!this.inSprintZone(raw,this.stickAngle)) this.unlockSprint();
+    this.move={x:dx*unit*scaled,y:-dy*unit*scaled};
+    if(raw>STICK_DEADZONE) this.stickTapToUnlock=false;
+    if(this.locked) this.lockedMove={...this.move};
+    this.trackSprintHold(raw,this.stickAngle);
   }
-  /** 累计在冲刺区的停留时间：同一方向连续停住 LOCK_HOLD 秒就锁定。 */
+  inSprintZone(raw,angle) {
+    return raw>=SPRINT_RING&&-Math.sin(angle)>=LOCK_FORWARD;
+  }
+  /** 同方向在向上外推区域停留，普通满推、横移和倒退不会触发。 */
   trackSprintHold(raw, angle) {
-    if (raw < SPRINT_RING) { this.lockTimer = 0; return; }
-    // 方向变化过大（在画圆/换向）时重新计时，避免划一下就被锁住。
-    const drift = Math.abs(Math.atan2(Math.sin(angle - this.lockAngle), Math.cos(angle - this.lockAngle)));
-    if (this.lockTimer <= 0 || drift > LOCK_DIRECTION_SLOP) { this.lockTimer = 0.0001; this.lockAngle = angle; }
+    if(this.lockBlocked||!this.inSprintZone(raw,angle)){this.lockTimer=0;return;}
+    const drift=Math.abs(Math.atan2(Math.sin(angle-this.lockAngle),Math.cos(angle-this.lockAngle)));
+    if(this.lockTimer<=0||drift>LOCK_DIRECTION_SLOP){this.lockTimer=0.0001;this.lockAngle=angle;}
   }
   /** 每帧推进锁定计时。手指停住不动时不会产生 pointermove，所以计时必须靠帧推进。 */
   tick(dt) {
     // 载具／空中阶段不允许冲刺锁定：已锁定的立即解除，计时中的直接清零。
-    if (!this.sprintLockGate) {
+    if (!this.active || this.layoutEditing || !this.sprintLockGate) {
       if (this.locked) this.unlockSprint();
       this.lockTimer = 0;
       return;
@@ -196,10 +197,11 @@ export class Input {
     if (navigator.vibrate) navigator.vibrate(12);
   }
   unlockSprint() {
+    this.lockTimer=0;
+    this.lockBlocked=this.stickPointer!==undefined;
     if (!this.locked) return;
     this.locked = false;
     this.sprintLock = false;
-    this.lockTimer = 0;
     this.lockedMove = { x: 0, y: 0 };
     this.stickRoot?.classList.remove('is-locked');
     this.move = { x: 0, y: 0 };

@@ -6,7 +6,8 @@
   "description": "原创海岛单机战术竞技游戏，Three.js 程序化场景",
   "scripts": {
     "build": "node build.mjs",
-    "check": "node check.mjs"
+    "check": "node check.mjs",
+    "test": "node tests/movement-pickup.mjs"
   },
   "dependencies": {
     "three": "^0.186.0",
