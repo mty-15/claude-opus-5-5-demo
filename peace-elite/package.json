@@ -7,7 +7,7 @@
   "scripts": {
     "build": "node build.mjs",
     "check": "node check.mjs",
-    "test": "node tests/movement-pickup.mjs && node tests/mobile-experience.mjs && node tests/item-pickup.mjs && node tests/death-crates.mjs"
+    "test": "node tests/movement-pickup.mjs && node tests/mobile-experience.mjs && node tests/item-pickup.mjs && node tests/death-crates.mjs && node tests/soldier-models.mjs"
   },
   "dependencies": {
     "three": "^0.186.0",

@@ -333,116 +333,164 @@ function canopy(a, parent, p) {
 export function createSoldier({ color = 0x647466, player = false } = {}) {
   const a = asset('soldier');
   const p = palette(a, color);
+  // Broad cloth panels and a few warm accents stay legible without textures.
+  p.cloth.color.lerp(new THREE.Color(0xbac5b6), 0.16);
+  p.armor.color.set(0x303c40);
+  p.webbing.color.set(0xa18e70);
+  const panel = a.material(new THREE.Color(color).lerp(new THREE.Color(0xc6cbbd), 0.38));
+  const accent = a.material(player ? 0xc58d54 : 0xad9774);
+  const seam = a.material(0x455051);
+  // Octagonal cross-sections provide tailored shoulders/waist, not stacked cubes.
+  // Rings are [height, width, depth, optional forward/back offset], low to high.
+  const tailored = (parent, rings, surface, position = [0, 0, 0], rotation) => {
+    const shape = a.geometry('tailored:' + JSON.stringify(rings), () => {
+      const vertices = [], indices = [];
+      for (const [y, width, depth, z = 0] of rings) {
+        const x = width / 2, d = depth / 2, bevel = Math.min(width, depth) * 0.19;
+        for (const [px, pz] of [[-x + bevel, -d], [x - bevel, -d], [x, -d + bevel],
+          [x, d - bevel], [x - bevel, d], [-x + bevel, d], [-x, d - bevel], [-x, -d + bevel]]) vertices.push(px, y, pz + z);
+      }
+      for (let ring = 0; ring < rings.length - 1; ring++) for (let j = 0; j < 8; j++) {
+        const lo = ring * 8 + j, next = ring * 8 + (j + 1) % 8;
+        indices.push(lo, lo + 8, next, next, lo + 8, next + 8);
+      }
+      const top = (rings.length - 1) * 8;
+      for (let j = 1; j < 7; j++) indices.push(0, j, j + 1, top, top + j + 1, top + j);
+      const indexed = new THREE.BufferGeometry();
+      indexed.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      indexed.setIndex(indices);
+      const result = indexed.toNonIndexed();
+      indexed.dispose();
+      result.computeVertexNormals();
+      return result;
+    });
+    return a.mesh(parent, shape, surface, position, rotation);
+  };
+  const softBox = (parent, size, surface, position, rotation) => {
+    const [w, h, d] = size, edge = Math.min(w, h, d) * 0.17;
+    // Thin straps/trim need clipped corners, not four rings of bevels.
+    if (Math.min(w, h, d) <= 0.035) return tailored(parent,
+      [[-h / 2, w, d], [h / 2, w, d]], surface, position, rotation);
+    return tailored(parent, [[-h / 2, w - edge * 2, d - edge * 2],
+      [-h / 2 + edge, w, d], [h / 2 - edge, w, d],
+      [h / 2, w - edge * 2, d - edge * 2]], surface, position, rotation);
+  };
   const hips = group(a.root, 'hips', [0, 0.9, 0]);
   const torso = group(hips, 'torso');
-  a.box(hips, [0.32, 0.17, 0.21], p.darkCloth, [0, 0.012, 0]);
-  a.box(hips, [0.355, 0.045, 0.234], p.webbing, [0, 0.081, 0]);
-  a.box(hips, [0.05, 0.038, 0.018], p.steel, [0, 0.08, -0.126]);
-  a.box(torso, [0.36, 0.38, 0.22], p.cloth, [0, 0.295, 0]);
-  a.box(torso, [0.32, 0.32, 0.055], p.armor, [0, 0.291, -0.133]);
-  a.box(torso, [0.29, 0.29, 0.036], p.darkCloth, [0, 0.30, 0.13]);
-  a.box(torso, [0.245, 0.195, 0.022], p.webbing, [0, 0.345, -0.17]);
-  a.box(torso, [0.19, 0.092, 0.018], p.cloth, [0, 0.435, -0.17]);
-  a.box(torso, [0.125, 0.028, 0.012], p.armor, [0, 0.466, -0.184]);
+  tailored(hips, [[-0.095, 0.29, 0.20], [-0.015, 0.335, 0.232], [0.095, 0.30, 0.21]], p.darkCloth);
+  softBox(hips, [0.342, 0.043, 0.238], p.rubber, [0, 0.077, 0]);
+  softBox(hips, [0.048, 0.031, 0.021], p.tan, [0, 0.077, -0.128]);
+  tailored(torso, [[0.095, 0.295, 0.21], [0.23, 0.335, 0.235],
+    [0.395, 0.408, 0.248], [0.462, 0.414, 0.23], [0.522, 0.185, 0.18]], p.cloth);
+  // Shaped plate carrier; clipped corners expose the shoulder line underneath.
+  tailored(torso, [[0.16, 0.275, 0.045], [0.32, 0.326, 0.056],
+    [0.431, 0.29, 0.052], [0.466, 0.19, 0.035]], p.armor, [0, 0, -0.137]);
+  tailored(torso, [[0.17, 0.27, 0.035], [0.405, 0.31, 0.041],
+    [0.468, 0.20, 0.03]], p.armor, [0, 0, 0.133]);
+  softBox(torso, [0.212, 0.14, 0.017], panel, [0, 0.352, -0.176]);
+  softBox(torso, [0.092, 0.029, 0.012], seam, [0, 0.39, -0.19]);
+  a.box(torso, [0.051, 0.005, 0.003], p.tan, [0, 0.39, -0.197]);
   for (const side of [-1, 1]) {
-    a.box(torso, [0.108, 0.122, 0.035], p.armor, [side * 0.075, 0.276, -0.165]);
-    a.box(torso, [0.093, 0.076, 0.044], p.webbing, [side * 0.074, 0.382, -0.174]);
-    a.box(torso, [0.071, 0.047, 0.012], p.cloth, [side * 0.074, 0.371, -0.201]);
-    a.box(torso, [0.058, 0.025, 0.012], p.rubber, [side * 0.074, 0.421, -0.201]);
+    softBox(torso, [0.044, 0.29, 0.025], p.webbing, [side * 0.128, 0.351, -0.16], [0, 0, -side * 0.11]);
+    softBox(torso, [0.051, 0.036, 0.245], panel, [side * 0.13, 0.472, 0]);
+    softBox(torso, [0.089, 0.116, 0.058], p.darkCloth, [side * 0.068, 0.23, -0.178]);
+    softBox(torso, [0.089, 0.027, 0.060], p.webbing, [side * 0.068, 0.273, -0.181]);
+    a.box(torso, [0.018, 0.043, 0.007], seam, [side * 0.068, 0.249, -0.213]);
+    softBox(hips, [0.073, 0.125, 0.091], p.darkCloth, [side * 0.194, -0.029, 0.018]);
   }
-  for (const side of [-1, 1]) {
-    a.box(torso, [0.048, 0.37, 0.028], p.webbing, [side * 0.13, 0.33, -0.17], [0, 0, side * -0.07]);
-    a.box(torso, [0.052, 0.048, 0.28], p.webbing, [side * 0.13, 0.484, 0]);
-    a.box(torso, [0.094, 0.143, 0.065], p.darkCloth, [side * 0.067, 0.211, -0.195]);
-    a.box(torso, [0.092, 0.023, 0.071], p.webbing, [side * 0.067, 0.268, -0.2]);
-    a.box(hips, [0.086, 0.15, 0.11], p.webbing, [side * 0.207, -0.06, 0.025]);
+  for (let row = 0; row < 2; row++) a.box(torso, [0.174, 0.009, 0.006], p.webbing, [0, 0.328 + row * 0.027, -0.188]);
+  softBox(torso, [0.050, 0.077, 0.033], seam, [-0.163, 0.365, -0.137]);
+  a.box(torso, [0.025, 0.019, 0.008], p.tan, [-0.163, 0.378, -0.157]);
+  a.bar(torso, [-0.166, 0.399, -0.139], [-0.171, 0.46, -0.132], 0.004, p.rubber, 4);
+  // A compact hiking-style pack replaces the large square slab on the back.
+  const pack = group(torso, 'backpack', [0, 0.285, 0.218]);
+  tailored(pack, [[-0.176, 0.205, 0.115], [-0.135, 0.262, 0.17],
+    [0.105, 0.278, 0.178], [0.185, 0.23, 0.142]], p.darkCloth);
+  softBox(pack, [0.262, 0.081, 0.167], panel, [0, 0.142, 0.011]);
+  softBox(pack, [0.211, 0.143, 0.058], p.cloth, [0, -0.056, 0.101]);
+  for (const x of [-0.084, 0.084]) {
+    softBox(pack, [0.022, 0.289, 0.012], p.webbing, [x, 0.012, 0.097]);
+    softBox(pack, [0.031, 0.03, 0.018], seam, [x, 0.044, 0.109]);
   }
-  for (let row = 0; row < 3; row++) a.box(torso, [0.22, 0.009, 0.008], p.tan, [0, 0.316 + row * 0.03, -0.195]);
-  a.box(torso, [0.087, 0.046, 0.01], p.rubber, [0, 0.428, -0.187]);
-  a.box(torso, [0.066, 0.009, 0.012], p.tan, [0, 0.428, -0.193]);
-  a.box(torso, [0.047, 0.071, 0.036], p.rubber, [-0.157, 0.385, -0.145]);
-  a.box(torso, [0.029, 0.034, 0.012], p.steel, [-0.157, 0.382, -0.167]);
-  a.box(torso, [0.008, 0.032, 0.008], p.red, [-0.157, 0.382, -0.176]);
-  const pack = group(torso, 'backpack', [0, 0.29, 0.24]);
-  a.box(pack, [0.31, 0.36, 0.20], p.darkCloth);
-  a.box(pack, [0.27, 0.075, 0.215], p.cloth, [0, 0.178, 0]);
-  a.box(pack, [0.23, 0.19, 0.06], p.cloth, [0, -0.033, 0.122]);
-  for (const x of [-0.10, 0.10]) {
-    a.box(pack, [0.026, 0.37, 0.013], p.webbing, [x, 0, 0.109]);
-    a.box(pack, [0.037, 0.03, 0.023], p.metal, [x, -0.01, 0.122]);
-  }
-  a.cylinder(pack, 0.054, 0.054, 0.25, p.tan, [-0.194, -0.02, 0]);
-  a.box(pack, [0.065, 0.2, 0.09], p.armor, [0.185, 0, 0]);
-  a.bar(pack, [0.18, 0.12, 0], [0.19, 0.47, 0.015], 0.005, p.metal);
-  a.cylinder(torso, 0.059, 0.067, 0.105, p.skin, [0, 0.548, 0]);
+  a.bar(pack, [-0.053, 0.181, 0], [-0.037, 0.211, 0], 0.012, p.webbing);
+  a.bar(pack, [-0.037, 0.211, 0], [0.037, 0.211, 0], 0.012, p.webbing);
+  a.bar(pack, [0.037, 0.211, 0], [0.053, 0.181, 0], 0.012, p.webbing);
+  softBox(pack, [0.055, 0.177, 0.091], p.webbing, [-0.162, -0.023, 0.022]);
+  softBox(pack, [0.052, 0.123, 0.074], p.cloth, [0.155, -0.017, 0.022]);
+  softBox(pack, [0.070, 0.024, 0.008], accent, [0, -0.031, 0.133]);
+  a.cylinder(torso, 0.053, 0.065, 0.11, p.skin, [0, 0.545, 0], undefined, 8);
+  tailored(torso, [[0.487, 0.191, 0.197], [0.519, 0.173, 0.187],
+    [0.57, 0.139, 0.143]], accent, [0, 0, -0.005]);
+  softBox(torso, [0.064, 0.064, 0.029], accent, [0.052, 0.498, -0.1], [0, 0, -0.22]);
   const head = group(torso, 'head', [0, 0.665, -0.005]);
-  a.sphere(head, 0.112, p.skin, [0, 0, 0], [0.84, 1.08, 0.9]);
-  a.box(head, [0.09, 0.035, 0.048], p.darkCloth, [0, -0.061, -0.064]);
-  a.box(head, [0.022, 0.035, 0.035], p.skin, [0, -0.006, -0.095]);
-  a.box(head, [0.048, 0.02, 0.014], p.skin, [0, -0.041, -0.101]);
-  a.box(head, [0.172, 0.042, 0.037], p.rubber, [0, 0.023, -0.079]);
-  for (const x of [-0.043, 0.043]) {
-    a.box(head, [0.067, 0.028, 0.016], p.glass, [x, 0.023, -0.101]);
-    a.box(head, [0.074, 0.012, 0.021], p.armor, [x, 0.043, -0.098]);
-    a.box(head, [0.027, 0.034, 0.01], p.skin, [x * 2.1, -0.024, -0.073]);
-  }
-  const helmetGeo = a.geometry('helmet-dome', () => new THREE.SphereGeometry(0.136, 12, 6, 0, TAU, 0, Math.PI * 0.57));
-  a.mesh(head, helmetGeo, p.cloth, [0, 0.049, 0.007]).scale.z = 1.04;
-  a.box(head, [0.223, 0.021, 0.075], p.armor, [0, 0.036, -0.081]);
-  a.box(head, [0.035, 0.057, 0.022], p.metal, [0, 0.091, -0.112]);
-  a.box(head, [0.102, 0.018, 0.095], p.webbing, [0, 0.112, 0.035]);
-  a.box(head, [0.031, 0.056, 0.025], p.rubber, [0, 0.095, -0.135]);
+  tailored(head, [[-0.106, 0.09, 0.095, -0.022], [-0.072, 0.148, 0.147, -0.014],
+    [-0.005, 0.187, 0.182], [0.07, 0.174, 0.179], [0.114, 0.111, 0.123]], p.skin);
+  softBox(head, [0.162, 0.039, 0.032], p.rubber, [0, 0.021, -0.083]);
   for (const side of [-1, 1]) {
-    a.box(head, [0.018, 0.10, 0.021], p.webbing, [side * 0.092, -0.032, 0.012], [0.21, 0, side * -0.18]);
-    a.cylinder(head, 0.036, 0.036, 0.068, p.rubber, [side * 0.105, -0.018, 0.004], [0, 0, Math.PI / 2], 8);
-    a.box(head, [0.012, 0.034, 0.071], p.webbing, [side * 0.135, 0.068, 0]);
-    a.box(head, [0.012, 0.019, 0.044], p.metal, [side * 0.141, 0.072, 0.003]);
+    softBox(head, [0.061, 0.027, 0.014], p.glass, [side * 0.039, 0.022, -0.103]);
+    a.box(head, [0.044, 0.004, 0.002], p.steel, [side * 0.039, 0.03, -0.111]);
+    a.bar(head, [side * 0.081, 0.022, -0.076], [side * 0.097, 0.014, 0.034], 0.008, p.rubber, 4);
+    a.cylinder(head, 0.031, 0.031, 0.028, p.rubber, [side * 0.106, -0.009, 0.02], [0, 0, Math.PI / 2], 8);
+    a.bar(head, [side * 0.101, 0.017, 0.027], [side * 0.065, -0.09, -0.029], 0.009, p.webbing, 4);
   }
-  a.bar(head, [-0.119, -0.029, -0.013], [-0.057, -0.06, -0.12], 0.005, p.metal);
+  tailored(head, [[-0.036, 0.025, 0.032], [0.012, 0.02, 0.018]], p.skin, [0, 0, -0.098]);
+  a.box(head, [0.038, 0.005, 0.005], p.wood, [0, -0.069, -0.091]);
+  const helmetGeo = a.geometry('scout-helmet', () => {
+    const geo = new THREE.SphereGeometry(0.132, 12, 5, 0, TAU, 0, Math.PI * 0.55);
+    const flat = geo.toNonIndexed(); geo.dispose(); flat.computeVertexNormals(); return flat;
+  });
+  a.mesh(head, helmetGeo, p.cloth, [0, 0.048, 0.007]).scale.set(0.96, 1, 1.07);
+  softBox(head, [0.226, 0.019, 0.114], p.darkCloth, [0, 0.033, -0.071]);
+  softBox(head, [0.033, 0.037, 0.027], seam, [0, 0.089, -0.119]);
+  for (const side of [-1, 1]) {
+    softBox(head, [0.018, 0.032, 0.084], p.webbing, [side * 0.123, 0.061, 0.01]);
+    softBox(head, [0.012, 0.014, 0.043], seam, [side * 0.133, 0.061, 0.011]);
+  }
+  a.bar(head, [-0.112, -0.013, 0.015], [-0.057, -0.061, -0.117], 0.004, p.rubber, 4);
   const legs = [-1, 1].map(side => {
     const thigh = group(hips, side < 0 ? 'left-thigh' : 'right-thigh', [side * 0.102, 0, 0]);
-    a.cylinder(thigh, 0.092, 0.073, 0.36, p.cloth, [0, -0.19, 0], undefined, 10);
-    a.box(thigh, [0.067, 0.13, 0.069], p.darkCloth, [side * 0.066, -0.18, 0.006]);
-    a.box(thigh, [0.088, 0.099, 0.045], p.webbing, [side * 0.045, -0.105, -0.066]);
-    a.box(thigh, [0.074, 0.075, 0.017], p.cloth, [side * 0.045, -0.105, -0.091]);
-    a.box(thigh, [0.042, 0.018, 0.01], p.rubber, [side * 0.045, -0.105, -0.103]);
+    tailored(thigh, [[-0.385, 0.124, 0.133], [-0.25, 0.14, 0.151],
+      [-0.12, 0.165, 0.177], [0.008, 0.156, 0.168]], p.cloth);
+    softBox(thigh, [0.045, 0.155, 0.101], panel, [side * 0.071, -0.17, 0.02]);
+    softBox(thigh, [0.063, 0.115, 0.065], p.darkCloth, [side * 0.07, -0.16, 0.028]);
+    a.box(thigh, [0.035, 0.014, 0.005], p.webbing, [side * 0.07, -0.119, -0.008]);
     const shin = group(thigh, 'shin', [0, -0.4, 0]);
-    a.cylinder(shin, 0.07, 0.054, 0.35, p.cloth, [0, -0.175, 0], undefined, 10);
-    a.box(shin, [0.106, 0.116, 0.042], p.armor, [0, -0.025, -0.068], [0.08, 0, 0]);
-    a.box(shin, [0.074, 0.043, 0.012], p.rubber, [0, 0.027, -0.093]);
-    for (const side of [-1, 1]) a.box(shin, [0.014, 0.063, 0.014], p.webbing, [side * 0.046, -0.026, -0.092]);
-    a.box(shin, [0.129, 0.026, 0.115], p.webbing, [0, -0.048, 0]);
+    tailored(shin, [[-0.36, 0.093, 0.108], [-0.175, 0.113, 0.131], [0.016, 0.128, 0.144]], p.cloth);
+    softBox(shin, [0.098, 0.123, 0.043], p.armor, [0, -0.028, -0.076]);
+    softBox(shin, [0.066, 0.075, 0.014], seam, [0, -0.025, -0.101]);
+    a.box(shin, [0.127, 0.021, 0.12], p.webbing, [0, -0.047, 0]);
     const boot = group(shin, 'boot', [0, -0.4, 0]);
-    a.box(boot, [0.137, 0.12, 0.175], p.rubber, [0, 0.02, 0.014]);
-    a.box(boot, [0.142, 0.084, 0.26], p.rubber, [0, -0.052, -0.054]);
-    a.box(boot, [0.148, 0.022, 0.271], p.armor, [0, -0.09, -0.054]);
-    for (let i = 0; i < 4; i++) {
-      const z = -0.104 + i * 0.028;
-      a.bar(boot, [-0.035, 0.061 - i * 0.012, z], [0.035, 0.049 - i * 0.012, z - 0.012], 0.0035, p.webbing, 4);
-    }
+    tailored(boot, [[-0.024, 0.114, 0.135], [0.097, 0.111, 0.12]], p.rubber, [0, 0, 0.012]);
+    softBox(boot, [0.13, 0.105, 0.233], p.rubber, [0, -0.038, -0.049]);
+    softBox(boot, [0.139, 0.02, 0.251], seam, [0, -0.09, -0.052]);
+    for (let i = 0; i < 3; i++) a.box(boot, [0.055, 0.006, 0.009], p.webbing, [0, 0.018 + i * 0.014, -0.098 + i * 0.026]);
     return { thigh, shin, boot };
   });
   const down = new THREE.Vector3(0, -1, 0);
   const direction = new THREE.Vector3(), target = new THREE.Vector3();
   const bend = new THREE.Vector3(), midpoint = new THREE.Vector3();
   const arms = [-1, 1].map(side => {
-    const shoulder = new THREE.Vector3(side * 0.235, 0.455, 0);
+    const shoulder = new THREE.Vector3(side * 0.235, 0.475, 0);
     const upper = group(torso, side < 0 ? 'left-arm' : 'right-arm');
     const lower = group(torso, 'forearm');
-    a.cylinder(upper, 0.071, 0.056, 0.26, p.cloth, [0, -0.13, 0], undefined, 8);
-    a.box(upper, [0.03, 0.081, 0.071], p.webbing, [side * 0.058, -0.085, 0]);
-    a.cylinder(lower, 0.057, 0.041, 0.26, p.darkCloth, [0, -0.13, 0], undefined, 8);
-    a.box(lower, [0.081, 0.06, 0.048], p.armor, [0, -0.025, 0.046]);
+    tailored(upper, [[-0.26, 0.11, 0.115], [-0.085, 0.146, 0.157],
+      [-0.025, 0.142, 0.151], [0.016, 0.107, 0.12], [0.039, 0.066, 0.08]], p.cloth);
+    softBox(upper, [0.029, 0.091, 0.096], panel, [side * 0.072, -0.065, 0]);
+    a.box(upper, [0.005, 0.018, 0.056], accent, [side * 0.09, -0.061, 0]);
+    tailored(lower, [[-0.26, 0.08, 0.092], [-0.17, 0.098, 0.109], [0.013, 0.116, 0.12]], p.darkCloth);
+    softBox(lower, [0.086, 0.067, 0.031], p.armor, [0, -0.026, 0.047]);
+    softBox(lower, [0.09, 0.032, 0.105], panel, [0, -0.234, 0]);
     const hand = group(torso, side < 0 ? 'support-hand' : 'trigger-hand');
-    a.box(hand, [0.071, 0.076, 0.075], p.rubber);
-    a.box(hand, [0.073, 0.029, 0.061], p.cloth, [0, -0.021, -0.018]);
-    a.box(hand, [0.021, 0.051, 0.042], p.rubber, [side * -0.041, 0.015, -0.01]);
+    softBox(hand, [0.068, 0.083, 0.064], p.rubber);
+    softBox(hand, [0.054, 0.032, 0.015], panel, [0, 0.003, 0.033]);
+    softBox(hand, [0.025, 0.046, 0.036], p.rubber, [-side * 0.035, 0.012, -0.011]);
     return { side, shoulder, upper, lower, hand };
   });
   const gunMount = group(torso, 'weapon-mount', [0.10, 0.30, -0.10]);
   const guns = Object.fromEntries(WEAPON_IDS.map(id => [id, rifle(a, gunMount, id, p, player)]));
   const parachuteRoot = canopy(a, a.root, p);
-  if (!player) {
+  // Keep animation pivots; batch rigid details for player and AI alike.
+  {
     a.mergeRigid([
       hips, torso, head, gunMount, parachuteRoot,
       ...legs.flatMap(leg => [leg.thigh, leg.shin, leg.boot]),
