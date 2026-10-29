@@ -1,3 +1,5 @@
+import { touchEnabled, loadTouchSettings, TOUCH_DEFAULTS, touchLookRadians } from './touch-settings.js';
+
 const KEYS = {
   KeyW:'forward', ArrowUp:'forward', KeyS:'back', ArrowDown:'back', KeyA:'left', ArrowLeft:'left', KeyD:'right', ArrowRight:'right',
   ShiftLeft:'sprint', ShiftRight:'sprint', ControlLeft:'walk', ControlRight:'walk', Space:'jump', KeyC:'crouch', KeyZ:'prone',
@@ -22,7 +24,11 @@ export class Input {
     this.canvas = canvas;
     this.onPause = onPause;
     this.onError = onError;
-    this.touch = matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints||0) > 0;
+    this.touch = touchEnabled();
+    this.touchSettings = loadTouchSettings();
+    this.touchDx = 0; this.touchDy = 0; this.scopeScale = 1;
+    this.heldPointers = new Map();
+    this.lookPointers = new Map();
     this.active = false;
     this.layoutEditing = false;
     this.keys = new Map();
@@ -76,17 +82,12 @@ export class Input {
     on(canvas, 'pointerdown', e => {
       if (!this.active || this.layoutEditing) return;
       if (!this.touch) { if(!this.cursorMode) this.lock(); return; }
-      if (this.lookPointer !== undefined) return;
-      this.lookPointer=e.pointerId; this.lookX=e.clientX; this.lookY=e.clientY;
+      this.beginLook(e.pointerId,e.clientX,e.clientY);
       canvas.setPointerCapture(e.pointerId);
     });
-    on(canvas,'pointermove', e => {
-      if(e.pointerId!==this.lookPointer || !this.active) return;
-      this.dx+=(e.clientX-this.lookX)*1.7; this.dy+=(e.clientY-this.lookY)*1.7;
-      this.lookX=e.clientX; this.lookY=e.clientY;
-    });
-    const endLook=e=>{if(e.pointerId===this.lookPointer) this.lookPointer=undefined;};
-    on(canvas,'pointerup',endLook); on(canvas,'pointercancel',endLook);
+    on(canvas,'pointermove',e=>this.moveLook(e.pointerId,e.clientX,e.clientY));
+    const endLook=e=>this.endLook(e.pointerId);
+    on(canvas,'pointerup',endLook); on(canvas,'pointercancel',endLook); on(canvas,'lostpointercapture',endLook);
     // 移动摇杆自己处理指针：拖动时旋钮跟手，松手回中（锁定奔跑时保持方向）。
     if(this.stickRoot) {
       on(this.stickRoot,'pointerdown',e=>{
@@ -94,6 +95,7 @@ export class Input {
         e.preventDefault(); e.stopPropagation();
         this.stickRoot.setPointerCapture(e.pointerId);
         this.beginStick(e.pointerId);
+        if(!this.stickTapToUnlock) this.updateStick(e.clientX,e.clientY);
       });
       on(this.stickRoot,'pointermove',e=>{
         if(e.pointerId!==this.stickPointer || !this.active || this.layoutEditing) return;
@@ -107,26 +109,62 @@ export class Input {
         this.updateStick(e.clientX,e.clientY);
       });
       const endStick=e=>{if(e.pointerId===this.stickPointer) this.endStick();};
+      const cancelStick=e=>{if(e.pointerId===this.stickPointer){this.unlockSprint();this.endStick();}};
       on(this.stickRoot,'pointerup',endStick);
-      on(this.stickRoot,'pointercancel',endStick);
-      on(this.stickRoot,'lostpointercapture',endStick);
+      on(this.stickRoot,'pointercancel',cancelStick);
+      on(this.stickRoot,'lostpointercapture',cancelStick);
     }
-    for(const button of document.querySelectorAll('button[data-touch]')) {
+    this.touchButtons=[...document.querySelectorAll('button[data-touch]')];
+    for(const button of this.touchButtons) {
       const action=button.dataset.touch;
       on(button,'pointerdown',e=>{
         if(!this.active || this.layoutEditing) return;
-        e.preventDefault(); button.setPointerCapture(e.pointerId);
+        e.preventDefault(); e.stopPropagation(); button.setPointerCapture(e.pointerId);
+        this.heldPointers.set(e.pointerId,{action,button});
         if(TOUCH_HELD.has(action)) this.touchKeys.add(action);
         else if(action==='aim') this.aim=!this.aim;
+        // 右手开火键兼作视角区：两拇指也能一边移动、一边跟枪。
+        if(action==='fire'&&this.touch) this.beginLook(e.pointerId,e.clientX,e.clientY);
         this.edges.add(action); button.classList.add('pressed');
       });
-      const release=()=>{this.touchKeys.delete(action);button.classList.remove('pressed');};
+      if(action==='fire') on(button,'pointermove',e=>this.moveLook(e.pointerId,e.clientX,e.clientY));
+      const release=e=>{
+        this.heldPointers.delete(e.pointerId);this.endLook(e.pointerId);
+        if(![...this.heldPointers.values()].some(p=>p.action===action)) this.touchKeys.delete(action);
+        if(![...this.heldPointers.values()].some(p=>p.button===button)) button.classList.remove('pressed');
+      };
       on(button,'pointerup',release); on(button,'pointercancel',release); on(button,'lostpointercapture',release);
     }
     on(canvas,'wheel',e=>{
       if(!this.active || this.cursorMode) return;
       e.preventDefault(); this.edges.add('nextSlot');
     },{passive:false});
+  }
+  beginLook(pointerId,x,y) {
+    (this.lookPointers||=new Map()).set(pointerId,{x,y});
+    if(this.lookPointer!==undefined) return false;
+    this.lookPointer=pointerId;this.lookX=x;this.lookY=y;
+    return true;
+  }
+  moveLook(pointerId,x,y) {
+    if(!this.active||this.layoutEditing) return;
+    const point=this.lookPointers?.get(pointerId);
+    if(!point) return;
+    point.x=x;point.y=y;
+    if(pointerId!==this.lookPointer) return;
+    const settings=this.touchSettings||TOUCH_DEFAULTS;
+    const sensitivity=this.aim?settings.ads:settings.look;
+    const scope=this.aim?(this.scopeScale||1):1;
+    this.touchDx=(this.touchDx||0)+touchLookRadians(x-this.lookX,globalThis.innerWidth||844,sensitivity,scope);
+    this.touchDy=(this.touchDy||0)+touchLookRadians(y-this.lookY,globalThis.innerWidth||844,sensitivity,scope);
+    this.lookX=x;this.lookY=y;
+  }
+  endLook(pointerId) {
+    this.lookPointers?.delete(pointerId);
+    if(pointerId!==this.lookPointer) return;
+    this.lookPointer=undefined;
+    const next=this.lookPointers?.entries().next().value;
+    if(next){this.lookPointer=next[0];this.lookX=next[1].x;this.lookY=next[1].y;}
   }
   // 布局编辑期间屏蔽游戏输入：按键与画面拖动只服务于拖动定位。
   setTouchEditing(value) { this.layoutEditing = !!value; }
@@ -234,13 +272,17 @@ export class Input {
   }
   // 整体重置（重开一局 / 暂停 / 返回菜单 / 窗口失焦）必须连锁定一起解除：
   // 否则 endStick 会保留 lockedMove，新一局会在出生点沿旧方向自动冲刺。
-  reset() { this.keys.clear();this.touchKeys.clear();this.edges.clear();this.dx=0;this.dy=0;this.aim=false;this.lookPointer=undefined;this.unlockSprint();this.endStick(); }
+  reset() {
+    this.keys.clear();this.touchKeys.clear();this.edges.clear();this.dx=0;this.dy=0;this.touchDx=0;this.touchDy=0;
+    this.aim=false;this.lookPointer=undefined;this.lookPointers?.clear();this.heldPointers?.clear();
+    for(const button of this.touchButtons||[]) button.classList.remove('pressed');
+    this.unlockSprint();this.endStick();
+  }
   sample() {
     const held=new Set([...this.keys.values(),...this.touchKeys]);
-    // 锁定奔跑时把 sprint 注入 held，复用既有的冲刺速度分支。
     if(this.locked) held.add('sprint');
-    const value={held,pressed:new Set(this.edges),dx:this.dx,dy:this.dy,aim:this.aim,move:this.move,locked:this.locked};
-    this.edges.clear();this.dx=0;this.dy=0;
+    const value={held,pressed:new Set(this.edges),dx:this.dx,dy:this.dy,touchDx:this.touchDx||0,touchDy:this.touchDy||0,aim:this.aim,move:this.move,locked:this.locked};
+    this.edges.clear();this.dx=0;this.dy=0;this.touchDx=0;this.touchDy=0;
     return value;
   }
   dispose() {this.setActive(false);this.controller.abort();}

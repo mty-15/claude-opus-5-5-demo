@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 process.chdir(fileURLToPath(new URL('.', import.meta.url)));
 const template = await readFile('src/index.html', 'utf8');
-const css = await readFile('src/style.css', 'utf8');
+const css = `${await readFile('src/style.css', 'utf8')}\n${await readFile('src/mobile.css', 'utf8')}`;
 for (const placeholder of ['/*__CSS__*/', '/*__JS__*/']) {
   if (!template.includes(placeholder)) throw new Error(`Missing HTML placeholder: ${placeholder}`);
 }

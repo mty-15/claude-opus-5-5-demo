@@ -1,4 +1,5 @@
 import { heightAt, LOCATIONS, MAP_SIZE } from './terrain.js';
+import { touchEnabled } from './touch-settings.js';
 
 const MAP_MIN = -MAP_SIZE / 2;
 const TERRAIN_RESOLUTION = 256;
@@ -10,7 +11,7 @@ const FIRE_MODES = Object.freeze({ auto: '全自动', automatic: '全自动', si
 const ZONE_LABELS = Object.freeze({ waiting: '安全区收缩倒计时', shrinking: '安全区正在收缩', finished: '最终安全区' });
 const PHASE_LABELS = Object.freeze({ plane: '运输机航行', parachute: '空降部署', ground: '地面行动' });
 const SCREENS = ['loading', 'menu', 'playing', 'paused', 'result'];
-const ACTIONS = ['start', 'resume', 'restart', 'menu', 'setVolume', 'setQuality', 'setFireMode', 'editTouchLayout'];
+const ACTIONS = ['start', 'resume', 'restart', 'menu', 'setVolume', 'setQuality', 'setFireMode', 'editTouchLayout', 'pickupLoot', 'openLootCrate', 'closeLootCrate', 'pickupCrateLoot'];
 const NAVIGATION = new Set(['start', 'resume', 'restart', 'menu']);
 const OVERLAYS = ['map', 'inventory', 'help'];
 function finite(value) { return typeof value === 'number' && Number.isFinite(value); }
@@ -99,7 +100,39 @@ export class HUD {
     this.valueCache.set(key, enabled);
   }
 
+  _acceptLootClick(event,id) {
+    if(event.detail===0)return true; // 键盘或辅助技术激活，不存在按下触点。
+    const gestures=this.lootGestures;
+    const hasPointer=Number.isInteger(event.pointerId)&&event.pointerId>=0;
+    const gesture=hasPointer?gestures?.get(event.pointerId):gestures?.size===1?gestures.values().next().value:null;
+    if(gesture)gestures.delete(gesture.pointerId);
+    return !!gesture&&gesture.id===id;
+  }
   _bindActions() {
+    this.lootGestures=new Map();
+    for(const [id,collapsed] of [['loot-close',true],['loot-reopen',false]]) {
+      const button=this.elements[id];
+      button.addEventListener('keydown',event=>{if(event.code==='Space'||event.code==='Enter'||event.key===' '||event.key==='Enter')event.stopPropagation();});
+      button.addEventListener('click',event=>{
+        event.stopPropagation();this.setLootCollapsed(collapsed);
+        const next=collapsed?this.elements['loot-reopen']:this.elements['nearby-loot-list'].querySelector('button');
+        if(next&&!next.hidden)next.focus({preventScroll:true});
+      });
+    }
+    for(const listId of ['nearby-loot-list','loot-crate-items']) {
+      const lootList=this.elements[listId];
+      lootList.addEventListener('keydown',event=>{if(event.code==='Space'||event.code==='Enter'||event.key===' '||event.key==='Enter')event.stopPropagation();});
+      lootList.addEventListener('pointerdown',event=>{
+        const button=event.target instanceof Element?event.target.closest('[data-loot-id]'):null;
+        if(button)this.lootGestures.set(event.pointerId,{pointerId:event.pointerId,id:button.dataset.lootId});
+      });
+    }
+    this.elements['loot-crate-close'].addEventListener('keydown',event=>{if(event.code==='Space'||event.code==='Enter'||event.key===' '||event.key==='Enter')event.stopPropagation();});
+    document.addEventListener('pointercancel',event=>this.lootGestures.delete(event.pointerId),true);
+    document.addEventListener('pointerup',event=>{
+      const gesture=this.lootGestures.get(event.pointerId);
+      if(gesture)setTimeout(()=>{if(this.lootGestures.get(event.pointerId)===gesture)this.lootGestures.delete(event.pointerId);},1000);
+    },true);
     this.elements['start-form'].addEventListener('submit', event => {
       event.preventDefault();
       const input = this.elements['player-name'];
@@ -126,6 +159,15 @@ export class HUD {
       if (!(event.target instanceof Element)) return;
       const button = event.target.closest('button');
       if (!button || !this.root.contains(button)) return;
+      if (button.dataset.lootId !== undefined) {
+        if(!this._acceptLootClick(event,button.dataset.lootId))return;
+        if(this.screen==='playing'&&!this.mapOpen&&!this.inventoryOpen&&!this.helpOpen) {
+          if(button.dataset.openCrate)this._runAction('openLootCrate',Number(button.dataset.openCrate));
+          else if(button.dataset.sourceCrate)this._runAction('pickupCrateLoot',{crateId:Number(button.dataset.sourceCrate),itemId:Number(button.dataset.lootId)});
+          else this._runAction('pickupLoot',Number(button.dataset.lootId));
+        }
+        return;
+      }
       if (button.dataset.action) this._runAction(button.dataset.action);
       if (button.dataset.ui === 'help') this.setHelp(true);
       // In-match close buttons are data-touch controls: main must close its own overlay state.
@@ -197,6 +239,7 @@ export class HUD {
       this.lastTelemetry = -Infinity;
       this._drawMaps(true);
     }
+    this._syncNearbyControls();
   }
   setLoading(progress, message) {
     if (!finite(progress)) throw new TypeError('加载进度必须是有限数值');
@@ -237,13 +280,9 @@ export class HUD {
     this._hidden('reticle', state.phase !== 'ground' || !!state.vehicle);
     this._updateCompass(state.heading);
     this._updateZone(state.zone);
-    this._updatePrompt(state.prompt, state.action);
-    this._hidden('air-status', state.phase !== 'plane' && state.phase !== 'parachute');
-    this._text('air-phase', state.phase === 'parachute' ? '距地高度' : '离机倒计时');
-    this._text('air-time', finite(state.airTime) ? `${Math.max(0, Math.ceil(state.airTime))} ${state.phase === 'parachute' ? 'm' : 's'}` : '—');
-    this._text('air-note', state.phase === 'parachute'
-      ? (state.touch ? '摇杆控制落点 · 低空自动开伞' : 'WASD 控制落点 · 低空自动开伞')
-      : (state.touch ? '观察落点 · 选择跳伞时机' : '观察落点 · F 离开运输机'));
+    this._updateAction(state.action);
+    this._updateNearbyLoot();
+    this._updateCrateLoot();
     this._updateAirdrop(state.phase, state.chute);
     // 暂停菜单里的射击模式下拉要与当前状态一致（按 B 或菜单切换后都同步）
     if (state.fireMode) {
@@ -255,6 +294,16 @@ export class HUD {
     // 手机没有 V 键，切视角改为可点按钮；触屏上按键提示（M/V/Esc）也没意义，用 body.is-touch 隐藏。
     this._hidden('touch-view', !state.touch);
     document.body.classList.toggle('is-touch', !!state.touch);
+    this._text('touch-vehicle', state.vehicleLabel || '上车');
+    for(const [id,on] of [['touch-aim',!!state.aim],['touch-crouch',!!state.crouch]]) {
+      this._class(id,'is-selected',on);this.elements[id].setAttribute('aria-pressed',String(on));
+    }
+    for(let index=0;index<2;index++) {
+      const slot=state.slots?.[index],id=`touch-slot-${index+1}`;
+      this._text(id,slot?`${weaponName(slot.id)} · ${number(slot.rounds)}`:`空武器 ${index+1}`);
+      this._class(id,'is-selected',index===state.slot);
+      this.elements[id].setAttribute('aria-pressed',String(index===state.slot));
+    }
     // 锁定奔跑：摇杆换成高亮态，屏幕提示「奔跑锁定 · 点摇杆解除」。
     document.body.classList.toggle('sprint-locked', !!state.sprintLocked);
     this._hidden('sprint-lock-note', !state.sprintLocked);
@@ -319,9 +368,99 @@ export class HUD {
     this._hidden('touch-airdrop', !visible);
     this._class('touch-airdrop', 'is-parachute', phase === 'parachute');
   }
-  _updatePrompt(prompt, action) {
-    this._hidden('interaction-prompt', !prompt);
-    this._text('prompt-text', prompt || '');
+  setLootCollapsed(collapsed) {
+    this.lootCollapsed=!!collapsed;
+    this.lootGestures?.clear();
+    this._syncNearbyControls();
+  }
+  _syncNearbyControls() {
+    const state=this.data;
+    const enabled=this.screen==='playing'&&!this.mapOpen&&!this.inventoryOpen&&!this.helpOpen&&!document.body.classList.contains('touch-layout-editing');
+    const crateVisible=enabled&&!!state.lootCrate;
+    const available=state.phase==='ground'&&!state.vehicle&&((state.nearbyLoot?.length||0)+(state.nearbyCrates?.length||0)>0);
+    if(!available)this.lootCollapsed=false;
+    const visible=enabled&&available&&!this.lootCollapsed&&!crateVisible;
+    this._hidden('nearby-loot',!visible);
+    this._hidden('loot-reopen',!(enabled&&available&&this.lootCollapsed&&!crateVisible));
+    this._hidden('loot-crate-panel',!crateVisible);
+    const context=crateVisible?`crate:${state.lootCrate.id}`:visible?'ground':'';
+    if(this.lootViewContext!==context||!context)this.lootGestures?.clear();
+    this.lootViewContext=context;
+    document.body.classList.toggle('has-nearby-loot',!!visible);
+    document.body.classList.toggle('loot-crate-open',!!crateVisible);
+    this._hidden('touch-vehicle',!(enabled&&state.phase==='ground'&&state.vehicleLabel&&!crateVisible));
+  }
+  _setLootIcon(element,kind='item') {
+    if(element.dataset.kind===kind)return;
+    const paths={
+      weapon:'M3 15H17L21 11H29V15H37V20H29L27 24H21L24 33H18L14 24H10L5 29H2L4 19Z',
+      ammo:'M5 11L9 4L13 11V34H5Z M16 14L20 7L24 14V34H16Z M27 11L31 4L35 11V34H27Z',
+      armor:'M12 4L17 9H23L28 4L35 11L31 18V35H9V18L5 11Z M15 15H25V29H15Z',
+      helmet:'M5 24C4 11 13 4 22 5C33 6 37 17 34 27L24 29L22 24H10L8 31H4Z',
+      medkit:'M6 12H34V35H6Z M14 5H26V12H23V8H17V12H14Z M18 17V22H13V26H18V31H22V26H27V22H22V17Z',
+      boost:'M14 3H26V8L29 13V36H11V13L14 8Z M15 17H25V26H15Z',
+      grenade:'M17 3H24V9L29 12L33 24L29 34H12L8 24L12 12L17 9Z M24 3H31V6H27V12H24Z',
+      crate:'M4 12L9 5H31L36 12V34H4Z M9 14V30H13V14Z M27 14V30H31V14Z M17 17H23V22H17Z',
+      item:'M6 8H34V34H6Z M10 12V18H30V12Z',
+    };
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 40 40');svg.setAttribute('fill','currentColor');
+    const shape=document.createElementNS('http://www.w3.org/2000/svg','path');shape.setAttribute('d',paths[kind]||paths.item);shape.setAttribute('fill-rule','evenodd');
+    svg.append(shape);element.replaceChildren(svg);element.dataset.kind=kind;
+  }
+  _updateNearbyLoot() {
+    const list=this.elements['nearby-loot-list'];
+    const boxes=(this.data.nearbyCrates||[]).filter(item=>Number.isSafeInteger(item.id)&&item.id>0).map(crate=>({...crate,kind:'crate',label:`${crate.ownerName}的战利品`,detail:crate.count?`打开战利品 · ${crate.count} 项`:'已搜空 · 查看',isCrate:true}));
+    const items=[...boxes,...(this.data.nearbyLoot||[]).filter(item=>Number.isSafeInteger(item.id)&&item.id>0)];
+    const rows=this.lootRows||=new Map(),ids=new Set(items.map(item=>item.id));
+    for(const [id,row] of rows) if(!ids.has(id)){row.button.remove();rows.delete(id);}
+    items.forEach((item,index)=>{
+      let row=rows.get(item.id);
+      if(!row){
+        const button=document.createElement('button');button.type='button';button.className='loot-card';button.dataset.lootId=String(item.id);
+        if(item.isCrate)button.dataset.openCrate=String(item.id);
+        const icon=document.createElement('span');icon.className='loot-icon';icon.setAttribute('aria-hidden','true');
+        const body=document.createElement('span');body.className='loot-card-body';
+        const name=document.createElement('span');name.className='loot-name';
+        const detail=document.createElement('small');detail.className='loot-detail';
+        body.append(name,detail);button.append(icon,body);row={button,icon,name,detail};rows.set(item.id,row);
+      }
+      const message=this.data.lootFeedback?.id===item.id?this.data.lootFeedback.message:'';
+      const detail=message||item.detail||({weapon:'枪械',ammo:'对应口径弹药',medkit:'恢复生命',boost:'补充能量',grenade:'投掷物',armor:'身体防护',helmet:'头部防护'})[item.kind]||'物资';
+      if(row.name.textContent!==item.label)row.name.textContent=item.label;
+      if(row.detail.textContent!==detail)row.detail.textContent=detail;
+      this._setLootIcon(row.icon,item.kind||'item');
+      row.button.setAttribute('aria-label',`${item.isCrate?'打开':'拾取'} ${item.label}${message?' · '+message:''}`);
+      row.button.classList.toggle('is-error',!!message);
+      row.button.classList.toggle('is-empty-crate',!!item.isCrate&&item.count===0);
+      if(list.children[index]!==row.button)list.insertBefore(row.button,list.children[index]||null);
+    });
+    this._syncNearbyControls();
+  }
+  _updateCrateLoot() {
+    const crate=this.data.lootCrate,list=this.elements['loot-crate-items'];
+    const items=crate?.items||[],rows=this.crateRows||=new Map(),ids=new Set(items.map(item=>item.id));
+    this._text('loot-crate-title',crate?`${crate.ownerName}的战利品`:'战利品');
+    this._hidden('loot-crate-empty',!crate||items.length>0);
+    for(const [id,row] of rows)if(!ids.has(id)){row.button.remove();rows.delete(id);}
+    items.forEach((item,index)=>{
+      let row=rows.get(item.id);
+      if(!row){
+        const button=document.createElement('button');button.type='button';button.className='loot-card';button.dataset.lootId=String(item.id);button.dataset.sourceCrate=String(crate.id);
+        const icon=document.createElement('span');icon.className='loot-icon';icon.setAttribute('aria-hidden','true');
+        const body=document.createElement('span');body.className='loot-card-body';
+        const name=document.createElement('span');name.className='loot-name';
+        const detail=document.createElement('small');detail.className='loot-detail';
+        body.append(name,detail);button.append(icon,body);row={button,icon,name,detail};rows.set(item.id,row);
+      }
+      const message=this.data.crateFeedback?.id===item.id?this.data.crateFeedback.message:'';
+      if(row.name.textContent!==item.label)row.name.textContent=item.label;
+      const detail=message||item.detail||'物资';if(row.detail.textContent!==detail)row.detail.textContent=detail;
+      this._setLootIcon(row.icon,item.kind);row.button.setAttribute('aria-label',`拾取 ${item.label}${message?' · '+message:''}`);
+      row.button.classList.toggle('is-error',!!message);
+      if(list.children[index]!==row.button)list.insertBefore(row.button,list.children[index]||null);
+    });
+  }
+  _updateAction(action) {
     this._hidden('action-progress', !action);
     if (!action) return;
     this._text('action-label', action.label);
@@ -342,7 +481,7 @@ export class HUD {
     }
   }
   feed(text) { this._notice('kill-feed', 'feed-entry', String(text), this.feedTimers, 5, 6500); }
-  toast(text, tone = 'info') { this._notice('toast-stack', 'toast', String(text), this.toastTimers, 3, 3500, tone); }
+  toast(text, tone = 'info') { this._notice('kill-feed', 'feed-entry', String(text), this.feedTimers, 3, 2500, tone); }
   _notice(containerId, className, text, timers, limit, lifetime, tone) {
     const container = this.elements[containerId];
     while (container.children.length >= limit) {
@@ -403,6 +542,7 @@ export class HUD {
     for (const id of ['loading-screen', 'menu-screen', 'game-hud', 'pause-screen', 'result-screen']) this.elements[id].inert = anyOpen;
     if (enabled && !document.pointerLockElement) this.elements[`${name}-overlay`].querySelector('button').focus({ preventScroll: true });
     if (!enabled && !anyOpen && this.overlayFocus?.isConnected && !this.overlayFocus.closest('[hidden]')) this.overlayFocus.focus({ preventScroll: true });
+    this._syncNearbyControls();
   }
   showResult({ win, rank, kills, time, damage, name }) {
     this._class('result-dialog', 'is-win', !!win);
@@ -417,7 +557,9 @@ export class HUD {
     this.setScreen('result');
   }
   _resetMatch() {
-    this.data = {};
+    // 设备模式不是对局状态；首次菜单尚未收到 game.updateHud() 时也要保留手机样式。
+    const touch=typeof this.data.touch==='boolean'?this.data.touch:touchEnabled();
+    this.data = { touch };
     this.lastMapDraw = -Infinity;
     this.lastTelemetry = -Infinity;
     for (const timers of [this.feedTimers, this.toastTimers]) {

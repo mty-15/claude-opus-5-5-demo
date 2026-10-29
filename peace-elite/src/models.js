@@ -672,6 +672,24 @@ export function createLootMesh(loot) {
   return a.root;
 }
 
+/** Enemy death container. Feet are at y=0; owned geometry follows the normal asset disposal path. */
+export function createDeathCrate() {
+  const a=asset('death-loot-crate');
+  const wood=a.material(0x76552f,{roughness:1});
+  const lid=a.material(0x967044,{roughness:1});
+  const metal=a.material(0x343b32,{metalness:.5,roughness:.65});
+  a.box(a.root,[1,.42,.66],wood,[0,.23,0]);
+  a.box(a.root,[1.04,.07,.7],lid,[0,.475,0]);
+  for(const x of [-.33,.33])a.box(a.root,[.075,.49,.72],metal,[x,.255,0]);
+  for(const z of [-.337,.337])a.box(a.root,[.96,.026,.018],lid,[0,.24,z]);
+  a.box(a.root,[.14,.13,.04],metal,[0,.42,-.37]);
+  const glow=a.material(0x7fff71,{emissive:0x62f05e,emissiveIntensity:.8,transparent:true,opacity:.24,depthWrite:false,side:THREE.DoubleSide});
+  const marker=a.mesh(a.root,a.geometry('crate-marker',()=>new THREE.CylinderGeometry(.07,.22,.9,6,1,true)),glow,[0,.95,0]);
+  marker.castShadow=false;marker.receiveShadow=false;
+  a.root.userData.marker=marker;
+  return a.root;
+}
+
 /** Compact open-top 4x4. The four wheel groups rotate around their local X axis. */
 export function createVehicle() {
   const a = asset('jeep');

@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import { createWorld } from './world.js';
-import { createSoldier, createViewmodel, createLootMesh, createVehicle, createPlane } from './models.js';
+import { createSoldier, createViewmodel, createLootMesh, createVehicle, createPlane, createDeathCrate } from './models.js';
+import { inventoryToLoot } from './loot-boxes.js';
 import { AudioEngine } from './audio.js';
 import { HUD } from './hud.js';
 import { Input } from './input.js';
 import { TouchLayout } from './touch-layout.js';
+import { saveTouchSettings } from './touch-settings.js';
 import { CollisionWorld, raySphereDistance, STEP_HEIGHT } from './physics.js';
 import { WEAPONS, createInventory, addLoot, reloadWeapon, consumeRound, applyDamage, createZone, advanceZone, zoneSnapshot, isOutsideZone, mulberry32 } from './rules.js';
 
@@ -31,7 +33,7 @@ const lootLabel=l=>l.kind==='weapon'?WEAPONS[l.id].name:({ammo:`${l.id==='556'?'
 export class Game {
   constructor() {
     this.screen='loading';this.elapsed=0;this.menuTime=0;this.time=0;this.matchCount=0;
-    this.actors=[];this.loot=[];this.vehicles=[];this.grenades=[];this.particles=[];this.tracers=[];
+    this.actors=[];this.loot=[];this.lootCrates=[];this.openCrateId=null;this.crateFeedback=null;this.vehicles=[];this.grenades=[];this.particles=[];this.tracers=[];
     this.options={difficulty:'normal',quality:'high',name:'特种兵'};
     this.mapOpen=false;this.inventoryOpen=false;this.helpOpen=false;this.thirdPerson=true;
     this.audio=new AudioEngine();
@@ -40,19 +42,37 @@ export class Game {
       setVolume:value=>this.audio.setVolume(value),setQuality:value=>this.setQuality(value),
       setFireMode:auto=>this.setFireMode(auto),
       editTouchLayout:()=>this.editTouchLayout(),
+      pickupLoot:id=>this.pickupLoot(id),
+      openLootCrate:id=>this.openLootCrate(id),
+      closeLootCrate:()=>this.closeLootCrate(),
+      pickupCrateLoot:({crateId,itemId})=>this.pickupCrateLoot(crateId,itemId),
     });
     this.canvas=document.getElementById('game-canvas');
     this.input=new Input(this.canvas,{onPause:()=>this.pause(),onError:message=>this.hud.toast(message,'warning')});
-    // 手机端为横屏射击：竖屏时提示旋转并暂停对局，遮罩由 body.portrait 驱动。
-    // 判定用 coarse pointer 或「有触点」双保险：部分安卓 WebView / 接管了鼠标的平板
-    // 会报 fine pointer，只靠 coarse 会误判成桌面端，导致手机上出现 F / 空格 / WASD 文案。
-    this.touchMode=matchMedia('(pointer: coarse)').matches||(navigator.maxTouchPoints||0)>0||new URLSearchParams(location.search).has('touch');
+    this.touchMode=this.input.touch;
+    document.body.classList.toggle('is-touch',this.touchMode);
+    this.options.quality=this.touchMode?'low':'high';
+    for(const radio of document.querySelectorAll('[name="quality"]')) radio.checked=radio.value===this.options.quality;
+    document.getElementById('pause-quality').value=this.options.quality;
+    this.bindTouchSettings();
     this.portrait=matchMedia('(orientation: portrait)');
     this.hud.setScreen('loading');
     this.resize=this.resize.bind(this);
     this.frame=this.frame.bind(this);
   }
 
+  bindTouchSettings() {
+    for(const key of ['look','ads']) {
+      const slider=document.getElementById(`touch-${key}-sensitivity`);
+      const output=document.getElementById(`touch-${key}-value`);
+      if(!slider||!output) continue;
+      slider.value=this.input.touchSettings[key];output.textContent=`${slider.value}%`;
+      slider.addEventListener('input',()=>{
+        this.input.touchSettings=saveTouchSettings({...this.input.touchSettings,[key]:Number(slider.value)});
+        output.textContent=`${this.input.touchSettings[key]}%`;
+      });
+    }
+  }
   async init() {
     this.hud.setLoading(.08,'正在建立渲染系统');
     await new Promise(requestAnimationFrame);
@@ -89,7 +109,7 @@ export class Game {
     this.menuHero.root.position.set(free.x,this.heroAnchor.y,free.z);
     this.menuHero.update({dt:0,speed:0,yaw:.5,weapon:'m416'});
     this.createZoneVisual();
-    this.setQuality('high');this.resize();
+    this.setQuality(this.options.quality);this.resize();
     window.addEventListener('resize',this.resize);
     this.touchLayout=new TouchLayout(this.input,{onClose:()=>this.exitTouchLayout()});
     // 只有真正可用触屏控件时才提供布局编辑入口。
@@ -129,7 +149,7 @@ export class Game {
   resetMatch() {
     for(const actor of this.actors) actor.model.dispose();
     for(const child of [...this.dynamic.children]) this.disposeObject(child);
-    this.dynamic.clear();this.actors=[];this.loot=[];this.vehicles=[];this.grenades=[];this.particles=[];this.tracers=[];
+    this.dynamic.clear();this.actors=[];this.loot=[];this.lootCrates=[];this.openCrateId=null;this.crateFeedback=null;this.vehicles=[];this.grenades=[];this.particles=[];this.tracers=[];
     this.player=null;this.vehicle=null;this.plane=null;this.action=null;this.overlay(false,false,false);this.viewmodel.setWeapon(null);
     this.viewmodel.root.visible=false;this.zoneWall.visible=false;this.nextCircle.visible=false;
     this.input.reset();this.damageDone=0;this.kills=0;this.time=0;this.shotCooldown=0;this.recoil=0;this.boost=0;
@@ -184,7 +204,6 @@ export class Game {
     this.planeTime=0;this.phase='plane';this.screen='playing';this.menuHero.root.visible=false;
     this.zoneWall.visible=true;this.nextCircle.visible=true;
     this.hud.setScreen('playing');this.input.setActive(true);this.touchLayout?.apply();this.input.lock();
-    this.hud.toast(this.touchMode?'行动开始 · 选择落点，点右侧「跳伞」离开运输机':'行动开始 · 选择落点，按 F 或空格离开运输机');
     this.hud.feed('运输机已进入海岛空域 · 本局 48 名参赛者');
     this.updateZoneVisual();this.updateHud();
   }
@@ -217,7 +236,8 @@ export class Game {
   addLootObject(item,x,z) {
     const mesh=createLootMesh(item),y=this.world.heightAt(x,z)+.16;
     mesh.position.set(x,y,z);this.dynamic.add(mesh);
-    const loot={item,x,y,z,mesh,active:true,phase:this.rng()*Math.PI*2};this.loot.push(loot);return loot;
+    const id=this.nextLootId=(this.nextLootId||0)+1;
+    const loot={id,item,x,y,z,mesh,active:true,phase:this.rng()*Math.PI*2};this.loot.push(loot);return loot;
   }
   spawnVehicles() {
     for(const location of this.world.locations.filter((_,i)=>i%2===0).slice(0,5)) {
@@ -229,7 +249,7 @@ export class Game {
   }
   pause() {
     if(this.screen!=='playing') return;
-    this.screen='paused';this.input.setActive(false);this.overlay(false,false,false);this.hud.setScreen('paused');
+    this.screen='paused';this.input.setActive(false);if(this.openCrateId)this.closeLootCrate();this.overlay(false,false,false);this.hud.setScreen('paused');
     this.audio.update({speed:0,vehicle:false,airborne:false});
   }
   /** 横屏是本作在手机端的目标形态：竖屏显示旋转提示，对局中自动暂停避免误操作。 */
@@ -265,6 +285,7 @@ export class Game {
   editTouchLayout() {
     if(!this.touchLayout||!this.touchLayout.enabled) return;
     if(this.touchLayout.editing) return;
+    if(this.openCrateId)this.closeLootCrate();
     if(!this.touchLayout.open()) {this.hud.toast('当前设备未启用触屏控件，无法编辑布局','warning');return;}
     this.hud.setScreen('playing');this.screen='editing';
   }
@@ -289,6 +310,7 @@ export class Game {
   }
   overlay(map,inventory,help) {
     this.mapOpen=map;this.inventoryOpen=inventory;this.helpOpen=help;
+    if((map||inventory||help)&&this.openCrateId)this.closeLootCrate();
     this.hud.setMap(map);this.hud.setInventory(inventory);this.hud.setHelp(help);
     if(this.input.active) this.input.setCursor(map||inventory||help);
   }
@@ -323,7 +345,7 @@ export class Game {
 
   commands(controls) {
     const pressed=controls.pressed,p=this.player;
-    if(pressed.has('pause')) {if(this.mapOpen||this.inventoryOpen||this.helpOpen) this.overlay(false,false,false);else this.pause();return;}
+    if(pressed.has('pause')) {if(this.mapOpen||this.inventoryOpen||this.helpOpen)this.overlay(false,false,false);else if(this.openCrateId)this.closeLootCrate();else this.pause();return;}
     if(pressed.has('map')) this.overlay(!this.mapOpen,false,false);
     if(pressed.has('inventory')) this.overlay(false,!this.inventoryOpen,false);
     if(pressed.has('help')) this.overlay(false,false,!this.helpOpen);
@@ -341,7 +363,9 @@ export class Game {
     if(pressed.has('heal')) this.beginHeal(false);
     if(pressed.has('boost')) this.beginHeal(true);
     if(pressed.has('grenade')) this.throwGrenade();
-    if(pressed.has('interact')||pressed.has('vehicle')) {this.interact();controls.move=this.input.move;}
+    if(pressed.has('interact')) this.interact();
+    if(pressed.has('vehicle')) this.interactVehicle();
+    if(pressed.has('interact')||pressed.has('vehicle')) controls.move=this.input.move;
     if(pressed.has('jump')&&!this.vehicle&&!p.prone&&p.y<=this.collision.floorAt(p.x,p.z,p.y+.08)+.08&&!this.collision.blocked(p.x,p.y+.01,p.z,.36,1.75)) {p.vy=5.2;p.crouch=false;this.action=null;}
     this.firePressed=pressed.has('fire');
   }
@@ -353,13 +377,14 @@ export class Game {
     this.actionErrorCooldown=Math.max(0,this.actionErrorCooldown-dt);
     const p=this.player,blocked=this.mapOpen||this.inventoryOpen||this.helpOpen;
     if(!blocked) {
-      p.yaw-=controls.dx*.0022*(controls.aim?.6:1);
-      p.pitch=clamp(p.pitch-controls.dy*.0022*(controls.aim?.6:1),-1.43,1.35);
+      p.yaw-=controls.dx*.0022*(controls.aim?.6:1)+(controls.touchDx||0);
+      p.pitch=clamp(p.pitch-controls.dy*.0022*(controls.aim?.6:1)-(controls.touchDy||0),-1.43,1.35);
     }
     const held=blocked?new Set():controls.held;
     // 键盘为离散 -1/0/1，触屏摇杆为连续量；两者相加后统一夹取，互不干扰。
-    const move=this.mergeMove(held,controls.move);
+    const move=blocked?{x:0,y:0}:this.mergeMove(held,controls.move);
     this.aim=!blocked&&controls.aim&&p.phase==='ground'&&!this.vehicle;
+    this.input.scopeScale=this.weapon()?.id==='kar98'?.5:1;
     this.planeTime+=dt;
     if(this.plane) {this.plane.position.z=540-this.planeTime*42;this.plane.visible=this.planeTime<43;}
     if(p.phase==='plane') {
@@ -374,7 +399,7 @@ export class Game {
       if((this.action.type!=='reload'&&moving)||held.has('fire')) this.cancelAction();
       else this.updateAction(dt);
     }
-    if(!blocked&&p.phase==='ground'&&!this.vehicle&&!this.action) {
+    if(!blocked&&p.phase==='ground'&&!this.vehicle&&!this.action&&!this.openCrateId) {
       const weapon=this.weapon(p);
       if((weapon?.automatic&&this.fireModeAuto&&held.has('fire'))||this.firePressed) this.firePlayer();
     }
@@ -415,7 +440,6 @@ export class Game {
   jumpFromPlane() {
     const p=this.player;if(p.phase!=='plane') return;
     p.phase='parachute';p.chute=false;p.vy=-16;p.pitch=-.42;
-    this.hud.toast(this.touchMode?'摇杆调整落点 · 开伞按钮提前开伞 · 低空自动开伞':'WASD 调整落点 · F 提前开伞 · 低空自动开伞');
     this.hud.feed('你已离开运输机');
   }
   /** 手动开伞。桌面端 F/空格，手机端用跳伞按钮；重复触发无副作用。 */
@@ -423,7 +447,7 @@ export class Game {
     const p=this.player;
     if(p.phase!=='parachute'||p.chute) return;
     p.chute=true;
-    this.hud.toast('降落伞已展开 · 摇杆微调落点');
+    this.hud.feed('降落伞已展开');
   }
   /** 竖屏提示上的按钮：进入全屏并尝试锁定横屏。遮罩挂在 body 下、不在 #hud 内，需单独接线。 */
   bindRotateHint() {
@@ -444,7 +468,7 @@ export class Game {
     actor.y=vertical.y;actor.vy=vertical.vy;
     if(vertical.grounded) {
       actor.phase='ground';actor.chute=false;
-      if(actor.isPlayer) {this.hud.toast(this.touchMode?'落地！靠近物资点按「互动」搜集 · 用摇杆移动':'落地！按 F 搜集武器与物资 · H 查看完整键位');this.hud.feed('已进入地面作战');}
+      if(actor.isPlayer) this.hud.feed('已进入地面作战');
     }
   }
 
@@ -579,26 +603,104 @@ export class Game {
     const items=this.nearbyLoot(actor);
     if(!items.length) return false;
     // pickup() 会清空 this.action 以打断原先动作；拾取本身是主动行为，这里保持原语义。
-    let taken=0;
-    for(const loot of items) if(this.pickup(actor,loot)) taken++;
+    let taken=0,reason='';
+    for(const loot of items) {
+      if(this.pickup(actor,loot,false)) taken++;
+      reason=this.pickupMessage||reason;
+    }
+    if(actor.isPlayer) {
+      if(taken){this.audio.pickup();this.hud.toast(`已拾取 ${taken} 项物品`);}
+      else if(reason)this.hud.toast(reason,'warning');
+    }
     return taken>0;
+  }
+  addDeathCrate(actor) {
+    if(actor.isPlayer)return null;
+    const crates=this.lootCrates||=[];
+    if(actor.lootCrateId)return crates.find(crate=>crate.id===actor.lootCrateId)||null;
+    const contents=inventoryToLoot(actor.inventory);
+    const id=this.nextLootId=(this.nextLootId||0)+1;
+    const items=contents.map(item=>({id:this.nextLootId=(this.nextLootId||0)+1,item,active:true}));
+    const mesh=createDeathCrate();
+    const y=this.collision.floorAt(actor.x,actor.z,actor.y+.05);
+    mesh.position.set(actor.x,y,actor.z);mesh.rotation.y=actor.yaw||0;
+    mesh.userData.marker.visible=items.length>0;this.dynamic.add(mesh);
+    const crate={id,ownerName:String(actor.name||'敌人').slice(0,32),x:actor.x,y,z:actor.z,active:true,items,mesh};
+    crates.push(crate);actor.lootCrateId=id;actor.inventory=createInventory();
+    return crate;
+  }
+  nearbyLootCrates(actor,limit=PICKUP_RADIUS) {
+    return (this.lootCrates||[]).filter(crate=>this.lootInRange(actor,crate,limit)).sort((a,b)=>dist(actor,a)-dist(actor,b));
+  }
+  canAccessLootCrate(crate) {
+    const p=this.player;
+    return !!(crate&&p&&p.alive&&this.screen==='playing'&&p.phase==='ground'&&!this.vehicle&&!this.mapOpen&&!this.inventoryOpen&&!this.helpOpen&&!this.touchLayout?.editing&&this.lootInRange(p,crate));
+  }
+  openLootCrate(id) {
+    if(!Number.isSafeInteger(id)||id<=0)return false;
+    const crate=(this.lootCrates||[]).find(item=>item.id===id);
+    if(!this.canAccessLootCrate(crate))return false;
+    this.input.setCursor(true);this.player.velX=0;this.player.velZ=0;
+    this.openCrateId=id;this.crateFeedback=null;this.updateHud();return true;
+  }
+  closeLootCrate(refresh=true) {
+    const wasOpen=!!this.openCrateId;this.openCrateId=null;this.crateFeedback=null;
+    if(wasOpen&&this.input.active&&this.input.cursorMode&&!this.mapOpen&&!this.inventoryOpen&&!this.helpOpen){this.input.cursorMode=false;if(!this.touchMode)this.input.lock();}
+    if(refresh&&this.player)this.updateHud();
+    return wasOpen;
+  }
+  pickupCrateLoot(crateId,itemId) {
+    if(crateId!==this.openCrateId||!Number.isSafeInteger(itemId)||itemId<=0)return false;
+    const crate=(this.lootCrates||[]).find(item=>item.id===crateId);
+    if(!this.canAccessLootCrate(crate)){this.closeLootCrate();return false;}
+    const loot=crate.items.find(item=>item.id===itemId&&item.active);
+    if(!loot){this.updateHud();return false;}
+    const accepted=this.pickup(this.player,loot,false,crate);
+    this.crateFeedback=accepted?null:{id:itemId,message:this.pickupMessage};
+    if(accepted)this.audio.pickup();
+    crate.mesh.userData.marker.visible=crate.items.some(item=>item.active);
+    this.updateHud();return accepted;
+  }
+  pickupLoot(id) {
+    const p=this.player;
+    if(!p||!p.alive||this.screen!=='playing'||p.phase!=='ground'||this.vehicle||this.openCrateId||this.mapOpen||this.inventoryOpen||this.helpOpen||this.touchLayout?.editing) return false;
+    if(!Number.isSafeInteger(id)||id<=0) return false;
+    const loot=this.loot.find(item=>item.id===id);
+    if(!loot||!this.lootInRange(p,loot)){this.updateHud();return false;}
+    const autoRunning=this.input.locked;
+    this.input.unlockSprint();if(autoRunning){p.velX=0;p.velZ=0;}
+    const accepted=this.pickup(p,loot,false);
+    this.lootFeedback=accepted?null:{id,message:this.pickupMessage};
+    if(accepted)this.audio.pickup();
+    this.updateHud();
+    return accepted;
+  }
+  interactVehicle() {
+    const p=this.player;if(!p||p.phase!=='ground')return false;
+    if(this.openCrateId)this.closeLootCrate();
+    const autoRunning=this.input.locked;
+    this.input.unlockSprint();if(autoRunning){p.velX=0;p.velZ=0;}
+    if(this.vehicle){this.exitVehicle();return true;}
+    const vehicle=this.vehicles.find(v=>dist(v,p)<4.5);
+    if(!vehicle)return false;
+    this.vehicle=vehicle;this.action=null;p.prone=false;p.crouch=false;
+    this.hud.toast('已上车');document.body.classList.add('in-vehicle');return true;
   }
   interact() {
     const p=this.player;if(p.phase!=='ground') return;
-    // 搜装时取消自动奔跑并清掉惯性，避免点击后继续冲出拾取范围。
+    if(this.openCrateId){this.closeLootCrate();return;}
     const autoRunning=this.input.locked;
-    this.input.unlockSprint();
-    if(autoRunning){p.velX=0;p.velZ=0;}
-    if(this.vehicle) {this.exitVehicle();return;}
-    // 有物品却装不下时保留 pickup() 的原因提示，不意外转为上车操作。
+    this.input.unlockSprint();if(autoRunning){p.velX=0;p.velZ=0;}
+    if(this.vehicle){this.interactVehicle();return;}
     if(this.nearestLoot(p)){this.pickupNearby(p);return;}
-    const vehicle=this.vehicles.find(v=>dist(v,p)<4.5);
-    if(vehicle) {this.vehicle=vehicle;this.action=null;p.prone=false;p.crouch=false;this.hud.toast(this.touchMode?'摇杆控制油门与转向 · 『互动』下车':'W/S 油门与倒车 · A/D 转向 · 空格刹车 · F 下车');document.body.classList.add('in-vehicle');}
-    else this.hud.toast('附近没有可拾取物品，请再靠近一点');
+    const crates=this.nearbyLootCrates(p),crate=crates.find(box=>box.items.some(item=>item.active))||crates[0];
+    if(crate){this.openLootCrate(crate.id);return;}
+    if(!this.interactVehicle())this.hud.toast('附近没有可拾取物品，请再靠近一点');
   }
-  pickup(actor,loot) {
+  pickup(actor,loot,notify=true,container=null) {
     const result=addLoot(actor.inventory,loot.item);
-    if(!result.accepted) {if(actor.isPlayer)this.hud.toast(result.message,'warning');return false;}
+    this.pickupMessage=result.message;
+    if(!result.accepted) {if(actor.isPlayer&&notify)this.hud.toast(result.message,'warning');return false;}
     const previous=actor.inventory.slots[actor.inventory.active];
     const before=actor.inventory;
     actor.inventory=result.inventory;
@@ -611,19 +713,41 @@ export class Game {
       remainder=(loot.item.rounds??weapon.magSize)-(actor.inventory.ammo[weapon.ammo]-before.ammo[weapon.ammo]);
     }
     if(remainder>0) loot.item={...loot.item,...(loot.item.kind==='weapon'?{rounds:remainder}:{amount:remainder})};
-    else {loot.active=false;loot.mesh.visible=false;}
+    else {loot.active=false;if(loot.mesh)loot.mesh.visible=false;}
     if(actor.isPlayer) {
-      this.audio.pickup();this.hud.toast(result.message);
+      if(notify){this.audio.pickup();this.hud.toast(result.message);}
       this.viewmodel.setWeapon(actor.inventory.slots[actor.inventory.active]?.id||null);
       this.action=null;
     }
-    // Replacement preserves the displaced magazine for both players and AI.
+    // 换枪时保留旧枪弹匣：从盒子取枪就将旧枪放回同一个盒子。
     if(loot.item.kind==='weapon'&&previous&&previous.id!==loot.item.id&&!actor.inventory.slots.some(slot=>slot?.id===previous.id)) {
-      this.addLootObject({kind:'weapon',id:previous.id,rounds:previous.rounds},actor.x+.6,actor.z+.4);
+      const item={kind:'weapon',id:previous.id,rounds:previous.rounds};
+      if(container)container.items.push({id:this.nextLootId=(this.nextLootId||0)+1,item,active:true});
+      else this.addLootObject(item,actor.x+.6,actor.z+.4);
     }
     return true;
   }
 
+  /** 先从准星取目标，再从角色眼部发射；越肩视差不再把近距离子弹射偏。 */
+  aimDirection(range) {
+    this.camera.updateMatrixWorld(true);
+    const view=this.camera.getWorldDirection(new THREE.Vector3());
+    const origin=this.camera.position;
+    let distance=this.collision.ray(origin,view,range);
+    for(const actor of this.actors) {
+      if(actor===this.player||!actor.alive||actor.phase==='plane'||actor.release>this.time) continue;
+      const head={x:actor.x,y:actor.y+(actor.prone?.42:actor.crouch?1.08:1.57),z:actor.z};
+      const body={x:actor.x,y:actor.y+(actor.prone?.3:actor.crouch?.64:.95),z:actor.z};
+      for(const [centre,radius] of [[head,.22],[body,actor.prone?.55:.46]]) {
+        const hit=raySphereDistance(origin,view,centre,radius,distance);
+        if(hit!==null) distance=hit;
+      }
+    }
+    const target=origin.clone().addScaledVector(view,Math.max(.1,distance));
+    const muzzle=eye(this.player);
+    const shot=target.sub(new THREE.Vector3(muzzle.x,muzzle.y,muzzle.z));
+    return shot.dot(view)>0?shot.normalize():view;
+  }
   firePlayer() {
     if(this.shotCooldown>0) return;
     const p=this.player,w=this.weapon(),slot=p.inventory.slots[p.inventory.active];
@@ -636,7 +760,11 @@ export class Game {
     if(slot.rounds<=0) {this.beginReload();if(!this.action&&this.actionErrorCooldown===0){this.hud.toast('弹匣已空，需要搜集弹药','warning');this.actionErrorCooldown=2;}return;}
     p.inventory=consumeRound(p.inventory);this.shotCooldown=w.fireInterval;
     const spread=w.spread*(this.aim?.22:1)*(p.speed>1?1.9:1)*(p.crouch?.75:p.prone?.4:1);
-    const direction=dirFor(p.yaw+(this.rng()-.5)*spread,p.pitch+(this.rng()-.5)*spread);
+    this.updateCamera(0);
+    const direction=this.aimDirection(w.range);
+    const right=direction.clone().cross(new THREE.Vector3(0,1,0)).normalize();
+    const up=right.clone().cross(direction).normalize();
+    direction.addScaledVector(right,(this.rng()-.5)*spread).addScaledVector(up,(this.rng()-.5)*spread).normalize();
     this.shoot(p,eye(p),direction,w);this.recoil=w.id==='kar98'?.095:.045;
     p.pitch=clamp(p.pitch+(w.id==='kar98'?.027:.01)*(this.aim?.6:1),-1.43,1.35);
     this.audio.shot(w.id,1);
@@ -674,16 +802,13 @@ export class Game {
     if(actor.health<=0) this.kill(actor,attacker,headshot,zone);
   }
   kill(actor,attacker,headshot,zone) {
+    if(!actor.alive)return;
     actor.alive=false;actor.health=0;actor.speed=0;actor.deadTime=this.time;actor.model.update({dt:0,dead:true,yaw:actor.yaw});
     if(attacker===this.player) {this.kills++;this.hud.toast(`${headshot?'爆头淘汰':'淘汰'} ${actor.name}`);}
     const message=zone?`${actor.name} 在信号区外被淘汰`:`${attacker?.name||'环境'} ${headshot?'爆头淘汰':'淘汰了'} ${actor.name}`;
     this.hud.feed(message);
-    if(!actor.isPlayer) {
-      for(const slot of actor.inventory.slots) if(slot) this.addLootObject({kind:'weapon',id:slot.id,rounds:slot.rounds},actor.x+(this.rng()-.5),actor.z+(this.rng()-.5));
-      for(const [id,amount] of Object.entries(actor.inventory.ammo)) if(amount>0) this.addLootObject({kind:'ammo',id,amount},actor.x+.6,actor.z+.6);
-      for(const [kind,field] of [['medkit','medkits'],['boost','boosts'],['grenade','grenades']]) if(actor.inventory[field])this.addLootObject({kind,amount:actor.inventory[field]},actor.x+(this.rng()-.5)*1.5,actor.z+(this.rng()-.5)*1.5);
-      for(const kind of ['armor','helmet'])if(actor.inventory[kind])this.addLootObject({kind,level:actor.inventory[kind]},actor.x+(this.rng()-.5)*1.5,actor.z+(this.rng()-.5)*1.5);
-    } else this.finish(false);
+    if(!actor.isPlayer)this.addDeathCrate(actor);
+    else this.finish(false);
   }
 
   updateBot(bot,dt) {
@@ -814,7 +939,7 @@ export class Game {
       v.speed*=.25;
     }
     v.x=next.x;v.z=next.z;v.y=this.collision.floorAt(v.x,v.z,v.y+.65,1.25);
-    if(v.y<.2) {v.speed=damp(v.speed,0,5,dt);if(this.actionErrorCooldown===0){this.hud.toast(this.touchMode?'水域无法行驶，请点『互动』下车':'水域无法行驶，请按 F 下车','warning');this.actionErrorCooldown=3;}}
+    if(v.y<.2) {v.speed=damp(v.speed,0,5,dt);if(this.actionErrorCooldown===0){this.hud.toast(this.touchMode?'水域无法行驶，请点「下车」离开载具':'水域无法行驶，请按 F 下车','warning');this.actionErrorCooldown=3;}}
     v.root.position.set(v.x,v.y,v.z);v.root.rotation.y=v.yaw;
     v.root.traverse(child=>{if(child.name==='wheel')child.rotation.x-=v.speed*dt/0.45;});
     p.x=v.x;p.z=v.z;p.y=v.y+.65;p.speed=Math.abs(v.speed);
@@ -910,7 +1035,8 @@ export class Game {
     } else if(p) {
       const active=this.screen==='playing',animDt=active?dt:0;
       for(const actor of this.actors) {
-        const visible=(actor.isPlayer?(this.thirdPerson||actor.phase!=='ground')&&!this.vehicle:dist(actor,p)<ACTOR_DRAW_DISTANCE&&this.time>=actor.release)&&(!actor.deadTime||this.time-actor.deadTime<12);
+        const scoped=this.aim&&this.weapon()?.id==='kar98';
+        const visible=(actor.isPlayer?((this.thirdPerson&&!scoped)||actor.phase!=='ground')&&!this.vehicle:dist(actor,p)<ACTOR_DRAW_DISTANCE&&this.time>=actor.release)&&(!actor.deadTime||this.time-actor.deadTime<12);
         actor.model.root.visible=visible;
         if(!visible)continue;
         actor.model.root.position.set(actor.x,actor.y,actor.z);
@@ -923,6 +1049,10 @@ export class Game {
       for(const loot of this.loot) {
         loot.mesh.visible=loot.active&&dist(loot,p)<95;
         if(loot.mesh.visible) {loot.mesh.position.y=loot.y+Math.sin(this.elapsed*2+loot.phase)*.07;loot.mesh.rotation.y=this.elapsed*.3+loot.phase;}
+      }
+      for(const crate of this.lootCrates||[]) {
+        crate.mesh.visible=dist(crate,p)<95;
+        crate.mesh.userData.marker.visible=crate.items.some(item=>item.active);
       }
       this.zoneWall.material.uniforms.uTime.value=this.elapsed;
     }
@@ -939,33 +1069,33 @@ export class Game {
   }
   updateCamera(dt) {
     const p=this.player,position=eye(p);
-    const third=this.thirdPerson||p.phase!=='ground'||this.vehicle;
-    let fov=this.aim?(this.weapon()?.id==='kar98'?25:46):72;
+    const scoped=this.aim&&this.weapon()?.id==='kar98';
+    const third=(this.thirdPerson&&!scoped)||p.phase!=='ground'||this.vehicle;
+    let fov=this.aim?(scoped?25:46):72;
     if(p.phase==='plane') {
       this.camera.position.set(p.x+36,p.y+12,p.z+48);
       this.camera.lookAt(p.x,p.y-10,p.z-40);fov=62;
       p.model.root.visible=false;
     } else if(third) {
-      const distance=this.vehicle?8:p.phase==='parachute'?9:3.3;
-      const pitch=p.phase==='parachute'?Math.max(-.65,p.pitch):clamp(p.pitch,-.7,.8);
+      const distance=this.vehicle?8:p.phase==='parachute'?9:this.aim?2.6:3.3;
+      const pitch=p.phase==='parachute'?Math.max(-.65,p.pitch):clamp(p.pitch,-1.2,1.2);
       const direction=dirFor(p.yaw,pitch);
-      // 焦点压到胸口高度：越肩视角要让角色完整入画（含腿脚），对准头部会把身体挤出画面底部。
-      // 再往下 (-.5) 则脚会落进底部道具键区域，-.42 是让整个人刚好落在 HUD 上方的折中值。
-      const focus=new THREE.Vector3(position.x,position.y+(this.vehicle?1:-.42),position.z);
-      const backwards=direction.clone().negate();
-      const clear=this.collision.ray(focus,backwards,distance);
-      const cameraDistance=Math.max(.35,Math.min(distance,clear-.2));
-      this.camera.position.copy(focus).addScaledVector(direction,-cameraDistance);
-      // 右肩偏移：镜头偏向右侧，角色让到画面左侧，露出前方视野（与和平精英手感一致）。
-      // 注意 cross() 会原地修改向量，必须 clone()，否则会污染上面的 direction。
+      // 站立为胸口焦点；蹲/趴不能继续减去站姿高度，否则趴姿焦点只离地 3cm。
+      const focusOffset=this.vehicle?1:p.prone?-.05:p.crouch?-.2:-.42;
+      const focus=new THREE.Vector3(position.x,position.y+focusOffset,position.z);
+      const offset=direction.clone().multiplyScalar(-distance);
       if(!this.vehicle&&p.phase==='ground') {
         const right=direction.clone().cross(new THREE.Vector3(0,1,0)).normalize();
-        this.camera.position.addScaledVector(right,-.62);
+        // 真正的右肩镜头：人物位于画面左侧，不再挡住准星右边的目标。
+        offset.addScaledVector(right,.62+(this.lean||0));
       }
+      const desiredDistance=offset.length(),ray=offset.clone().normalize();
+      const clear=this.collision.ray(focus,ray,desiredDistance);
+      this.camera.position.copy(focus).addScaledVector(ray,Math.max(.1,Math.min(desiredDistance,clear-.15)));
       this.camera.position.y=Math.max(this.camera.position.y,this.world.heightAt(this.camera.position.x,this.camera.position.z)+.4);
-      this.camera.lookAt(focus.addScaledVector(direction,10));
+      this.camera.lookAt(focus.clone().addScaledVector(direction,20));
     } else {
-      const bob=Math.sin(this.time*(p.speed>6?14:10))*Math.min(p.speed/5,1)*.035;
+      const bob=this.aim?0:Math.sin(this.time*(p.speed>5?14:10))*Math.min(p.speed/5,1)*.02;
       this.camera.position.set(position.x,position.y+bob,position.z);
       const offset=this.lean||0;
       this.camera.position.x+=Math.cos(p.yaw)*offset;this.camera.position.z-=Math.sin(p.yaw)*offset;
@@ -973,31 +1103,28 @@ export class Game {
     }
     this.camera.fov=damp(this.camera.fov,fov,13,dt);this.camera.updateProjectionMatrix();
     document.body.classList.toggle('aiming',!!this.aim);
-    document.body.classList.toggle('scoped',!!this.aim&&this.weapon()?.id==='kar98'&&!this.thirdPerson);
+    document.body.classList.toggle('scoped',!!scoped);
   }
 
   updateHud() {
     const p=this.player;if(!p)return;
     const slot=p.inventory.slots[p.inventory.active],weapon=this.weapon();
-    let prompt='';
-    const tap=this.touchMode?'『互动』':'F';
-    if(p.phase==='plane') prompt=this.touchMode?'点击「跳伞」选择你的降落地点':'F / 空格  跳伞 · 选择你的降落地点';
-    else if(p.phase==='parachute') prompt=p.chute?(this.touchMode?'摇杆调整方向 · 靠近建筑搜集装备':'WASD 调整方向 · 靠近建筑搜集装备'):(this.touchMode?'点击「开伞」提前展开降落伞':'F / 空格 开伞 · WASD 调整落点');
-    else if(this.vehicle) prompt=this.touchMode?'『互动』下车 · 摇杆控制油门与转向':'F 下车 · 空格 刹车 · Shift 加速';
-    else {
-      const loot=this.nearestLoot(p);
-      if(loot) prompt=`${tap} 拾取 ${lootLabel(loot.item)}`;
-      else if(this.vehicles.some(v=>dist(v,p)<4.5))prompt=`${tap} 驾驶越野车`;
-      else if(!weapon)prompt=this.touchMode?'寻找地面装备 · 靠近后按「互动」拾取':'寻找地面装备 · F 拾取 · M 查看地图';
-    }
+    const canLoot=p.phase==='ground'&&!this.vehicle;
+    let opened=(this.lootCrates||[]).find(crate=>crate.id===this.openCrateId);
+    if(this.openCrateId&&!this.canAccessLootCrate(opened)){this.closeLootCrate(false);opened=null;}
+    const nearbyCrates=canLoot?this.nearbyLootCrates(p).map(crate=>({id:crate.id,ownerName:crate.ownerName,count:crate.items.filter(item=>item.active).length})):[];
+    const lootCrate=opened?{id:opened.id,ownerName:opened.ownerName,items:opened.items.filter(entry=>entry.active).map(entry=>({id:entry.id,kind:entry.item.kind,label:lootLabel(entry.item)+(['medkit','boost','grenade'].includes(entry.item.kind)?` ×${entry.item.amount}`:''),detail:entry.item.kind==='weapon'?`弹匣 ${entry.item.rounds} 发`:''}))}:null;
+    const nearbyLoot=canLoot?this.nearbyLoot(p).sort((a,b)=>a.id-b.id).map(loot=>({id:loot.id,label:lootLabel(loot.item),kind:loot.item.kind,distance:dist(p,loot)})):[];
+    if(!nearbyLoot.some(loot=>loot.id===this.lootFeedback?.id))this.lootFeedback=null;
+    const vehicleLabel=p.phase==='ground'?(this.vehicle?'下车':this.vehicles.some(v=>dist(v,p)<4.5)?'上车':''):'';
     const markers=[{x:p.x,z:p.z,type:'player',heading:(-p.yaw*180/Math.PI+360)%360},...this.vehicles.map(v=>({x:v.x,z:v.z,type:'vehicle'}))];
     this.hud.update({phase:p.phase,alive:this.actors.filter(a=>a.alive).length,kills:this.kills,health:p.health,armor:p.inventory.armor,helmet:p.inventory.helmet,
       boost:this.boost,speed:p.speed*3.6,heading:(-p.yaw*180/Math.PI+360)%360,weapon:weapon?.name||'徒手',weaponId:weapon?.id||null,rounds:slot?.rounds||0,reserve:weapon?p.inventory.ammo[weapon.ammo]:0,
       slot:p.inventory.active,slots:p.inventory.slots,medkits:p.inventory.medkits,boosts:p.inventory.boosts,grenades:p.inventory.grenades,
-      zone:this.zoneInfo,position:{x:p.x,z:p.z},locations:this.world.locations,markers,prompt,
+      zone:this.zoneInfo,position:{x:p.x,z:p.z},locations:this.world.locations,markers,nearbyLoot,nearbyCrates,lootCrate,crateFeedback:this.crateFeedback,lootFeedback:this.lootFeedback,
       action:this.action?{label:this.action.label,progress:1-this.action.remaining/this.action.total}:null,
-      airTime:p.phase==='plane'?Math.max(0,24-this.planeTime):Math.max(0,p.y-this.world.heightAt(p.x,p.z)),vehicle:!!this.vehicle,fps:Math.round(this.fps),time:this.time,
-      chute:!!p.chute,touch:this.touchMode,
+      vehicle:!!this.vehicle,fps:Math.round(this.fps),time:this.time,
+      chute:!!p.chute,touch:this.touchMode,crouch:!!p.crouch,vehicleLabel,
       // 锁定奔跑（摇杆推到外圈停住）：HUD 上给一个常亮的「奔跑锁定」提示。
       sprintLocked:!!this.input.locked&&p.phase==='ground'&&!this.vehicle,
       // 空中阶段收起战斗键，把屏幕让给跳伞/开伞按钮。

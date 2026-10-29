@@ -16,7 +16,7 @@ export class TouchLayout {
   constructor(input, { onClose } = {}) {
     this.input = input;
     this.onClose = onClose;
-    this.enabled = matchMedia('(pointer: coarse)').matches || new URLSearchParams(location.search).has('touch');
+    this.enabled = input.touch;
     this.root = document.querySelector('.touch-controls');
     // 摇杆是 div（非 button），与按键一起参与自定义布局。
     // data-layout-skip 的控件（如只在空中出现的跳伞按钮）不参与，避免量不到尺寸。
