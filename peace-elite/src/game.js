@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { createWorld } from './world.js';
-import { createSoldier, createViewmodel, createLootMesh, createVehicle, createPlane, createDeathCrate } from './models.js';
+import { createViewmodel, createLootMesh, createVehicle, createPlane, createDeathCrate } from './models.js';
+import { createTacticalSoldier as createSoldier, prepareTacticalSoldiers } from './tactical-soldier.js';
+import { tacticalAssets } from './character-data.js';
 import { inventoryToLoot } from './loot-boxes.js';
 import { AudioEngine } from './audio.js';
 import { HUD } from './hud.js';
@@ -97,8 +99,9 @@ export class Game {
     await new Promise(requestAnimationFrame);
     this.world=createWorld(this.scene,{seed:2026,quality:'high'});
     this.collision=new CollisionWorld(this.world.colliders,this.world.heightAt);
-    this.hud.setLoading(.72,'正在准备装备与行动系统');
+    this.hud.setLoading(.72,'正在准备蒙皮人物与行动系统');
     await new Promise(requestAnimationFrame);
+    await prepareTacticalSoldiers(tacticalAssets);
     this.dynamic=new THREE.Group();this.scene.add(this.dynamic);
     this.viewmodel=createViewmodel();this.camera.add(this.viewmodel.root);this.viewmodel.root.visible=false;
     this.menuHero=createSoldier({color:0x526154,player:true});this.scene.add(this.menuHero.root);
@@ -1040,7 +1043,7 @@ export class Game {
         actor.model.root.visible=visible;
         if(!visible)continue;
         actor.model.root.position.set(actor.x,actor.y,actor.z);
-        actor.model.update({dt:animDt,speed:actor.speed,yaw:actor.yaw,pitch:actor.pitch,crouch:actor.crouch,prone:actor.prone,airborne:actor.phase==='parachute',parachute:actor.chute,dead:!actor.alive,weapon:actor.inventory.slots[actor.inventory.active]?.id||null});
+        actor.model.update({dt:animDt,speed:actor.speed,yaw:actor.yaw,pitch:actor.pitch,crouch:actor.crouch,prone:actor.prone,airborne:actor.phase==='parachute',parachute:actor.chute,dead:!actor.alive,distance:actor.isPlayer?0:dist(actor,p),weapon:actor.inventory.slots[actor.inventory.active]?.id||null});
       }
       this.updateCamera(dt);
       this.viewmodel.root.visible=p.phase==='ground'&&!this.vehicle&&!this.thirdPerson&&p.alive&&!(this.aim&&this.weapon()?.id==='kar98');

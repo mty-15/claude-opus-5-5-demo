@@ -329,6 +329,17 @@ function canopy(a, parent, p) {
   return root;
 }
 
+/** Existing weapon/canopy art, shared by the new skinned actor template. */
+export function createSoldierEquipment() {
+  const a = asset('soldier-equipment');
+  const p = palette(a);
+  const mount = group(a.root, 'weapon-mount');
+  const guns = Object.fromEntries(WEAPON_IDS.map(id => [id, rifle(a, mount, id, p, false)]));
+  const parachute = canopy(a, a.root, p);
+  a.mergeRigid([mount, parachute, ...Object.values(guns).map(gun => gun.root)]);
+  return {root:a.root, dispose:a.dispose};
+}
+
 /** Jointed 1.75 m actor. Root origin is the soles; yaw zero faces -Z. */
 export function createSoldier({ color = 0x647466, player = false } = {}) {
   const a = asset('soldier');
